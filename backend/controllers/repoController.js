@@ -2,8 +2,10 @@ const axios = require('axios')
 const simpleGit = require('simple-git')
 const fs = require('fs')
 const path = require('path')
+
 const { buildFileTree, countFiles } = require('../utils/fileTree')
 const { extractFunctionsFromTree } = require('../utils/extractFunctions')
+const { getCodeEvolution } = require('../utils/gitEvolution')
 
 const CLONE_BASE = './temp_repos'
 
@@ -41,17 +43,38 @@ async function analyzeRepo(req, res) {
 
     console.log('Extracting functions...')
     const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
-    const totalFunctions = extractedFunctions.reduce((sum, f) => sum + f.functionCount, 0)
+
+    const totalFunctions = extractedFunctions.reduce(
+      (sum, f) => sum + f.functionCount,
+      0
+    )
+
     console.log(`Extracted ${totalFunctions} functions`)
 
-    console.log('Sending to AI service for indexing...')
+    console.log('Analyzing code evolution...')
+    let evolutionData = {}
+
     try {
-      const indexResponse = await axios.post('http://localhost:8001/index', {
-        repo_name: repoName,
-        extracted_functions: extractedFunctions
-      }, {
-        timeout: 300000
-      })
+      evolutionData = await getCodeEvolution(clonePath, extractedFunctions)
+      console.log('Evolution analysis complete')
+    } catch (evoErr) {
+      console.error('Evolution error:', evoErr.message)
+    }
+
+    console.log('Sending to AI service for indexing...')
+
+    try {
+      const indexResponse = await axios.post(
+        'http://localhost:8001/index',
+        {
+          repo_name: repoName,
+          extracted_functions: extractedFunctions
+        },
+        {
+          timeout: 300000
+        }
+      )
+
       console.log('AI service response:', indexResponse.data.status)
     } catch (aiErr) {
       console.error('AI service error:', aiErr.message)
@@ -61,7 +84,8 @@ async function analyzeRepo(req, res) {
       repoName,
       fileCount,
       totalFunctions,
-      tree
+      tree,
+      evolutionData
     })
 
   } catch (err) {
@@ -78,10 +102,14 @@ async function queryRepo(req, res) {
   }
 
   try {
-    const response = await axios.post('http://localhost:8001/query', {
-      repo_name: repoName,
-      question
-    }, { timeout: 60000 })
+    const response = await axios.post(
+      'http://localhost:8001/query',
+      {
+        repo_name: repoName,
+        question
+      },
+      { timeout: 60000 }
+    )
 
     return res.status(200).json(response.data)
   } catch (err) {
@@ -119,4 +147,65 @@ async function getFileContent(req, res) {
   }
 }
 
-module.exports = { analyzeRepo, queryRepo, getFileContent }
+/**
+ * 🔥 NEW: Function Evolution API
+ */
+async function getFunctionEvolution(req, res) {
+  const { repoName, filePath, functionName } = req.query
+
+  if (!repoName || !filePath || !functionName) {
+    return res.status(400).json({
+      error: 'repoName, filePath and functionName are required'
+    })
+  }
+
+  try {
+    const clonePath = path.join(CLONE_BASE, repoName)
+
+    const tree = buildFileTree(clonePath)
+    const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
+
+    const evolutionData = await getCodeEvolution(clonePath, extractedFunctions)
+
+    const key = `${filePath.replace(/\\/g, '/')}::${functionName}`
+
+    const functionData = evolutionData[key]
+
+    if (!functionData) {
+      return res.status(404).json({
+        error: 'No evolution data found for this function'
+      })
+    }
+
+    let summary = ''
+
+    try {
+      const aiResponse = await axios.post('http://localhost:8001/evolution-summary', {
+        history: functionData.history
+      })
+
+      summary = aiResponse.data.summary
+    } catch (err) {
+      console.error('Summary error:', err.message)
+      summary = 'Summary not available'
+    }
+
+    return res.status(200).json({
+      filePath,
+      functionName,
+      history: functionData.history,
+      summary
+    })
+
+  } catch (err) {
+    console.error(err)
+    return res.status(500).json({ error: 'Failed to fetch evolution data' })
+  }
+}
+
+module.exports = {
+  analyzeRepo,
+  queryRepo,
+  getFileContent,
+  getFunctionEvolution 
+}
