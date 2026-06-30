@@ -26,6 +26,31 @@ def delete_collection(repo_name: str):
     except:
         pass
 
+def get_function_index(repo_name: str) -> dict:
+    """
+    Map "<file_path>::<function_name>" -> {file, startLine, endLine} for every
+    indexed function in the repo. Used to ground execution-flow node line ranges
+    against real metadata (a single source of truth — no hallucinated lines).
+    """
+    try:
+        collection = get_or_create_collection(repo_name)
+        result = collection.get(include=["metadatas"])
+        index = {}
+        for md in result.get("metadatas", []):
+            fn = md.get("function_name")
+            fp = md.get("file_path")
+            if not fn or fn == "__file_summary__" or not fp:
+                continue
+            index[f"{fp}::{fn}"] = {
+                "file": fp,
+                "startLine": md.get("start_line", 0),
+                "endLine": md.get("end_line", 0),
+            }
+        return index
+    except Exception as e:
+        print(f"get_function_index error: {e}")
+        return {}
+
 def _extract_file_metadata(file_data: dict) -> dict:
     all_function_names = [f["name"] for f in file_data["functions"]]
     imports = []

@@ -3,6 +3,9 @@ frontend/node_modules/
 backend/node_modules/
 __pycache__/
 *.pyc
+service/venv/
+venv/
+.venv/
 service/chroma_store/
 service/__pycache__/
 .env

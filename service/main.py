@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from vector_store import is_already_indexed, index_functions, query_collection, delete_collection
-from llm import ask_llm, client  # ✅ added client
+from vector_store import is_already_indexed, index_functions, query_collection, delete_collection, get_function_index
+from llm import ask_llm, model
 
 app = FastAPI()
 
@@ -72,12 +72,40 @@ def query_repo(request: QueryRequest):
 
     final_chunks = source_chunks[:5] if source_chunks else chunks[:5]
 
-    result = ask_llm(request.question, final_chunks)
+    from google.api_core.exceptions import ResourceExhausted
+
+    try:
+        result = ask_llm(request.question, final_chunks)
+    except ResourceExhausted:
+        raise HTTPException(
+            status_code=429,
+            detail="API Rate Limit Exceeded. Please wait a minute and try again."
+        )
+    except Exception as e:
+        print(f"LLM Error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to generate AI response. Please try again."
+        )
+
+    # Ground execution-flow node line ranges against real indexed metadata so
+    # clicking a node always scrolls to the correct lines in the File Viewer.
+    flow = result.get("execution_flow") or {"nodes": [], "edges": []}
+    fn_index = get_function_index(request.repo_name)
+    for node in flow.get("nodes", []):
+        fp = node.get("file")
+        fnm = node.get("functionName")
+        if fp and fnm:
+            grounded = fn_index.get(f"{fp}::{fnm}")
+            if grounded:
+                node["startLine"] = grounded["startLine"]
+                node["endLine"] = grounded["endLine"]
 
     return {
         "answer": result["answer"],
         "source_files": result["source_files"],
-        "source_functions": result["source_functions"]
+        "source_functions": result["source_functions"],
+        "execution_flow": flow
     }
 
 
@@ -108,10 +136,7 @@ Focus on improvements, refactoring, or behavior changes.
 """
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
+        response = model.generate_content(prompt)
 
         return {
             "summary": response.text

@@ -13,3 +13,33 @@ body {
   color: #ffffff;
   font-family: 'Inter', sans-serif;
 }
+
+/* Shiki Syntax Highlighting Customizations */
+.show-line-numbers .shiki code {
+  counter-reset: step;
+  counter-increment: step 0;
+}
+
+.show-line-numbers .shiki .line::before {
+  content: counter(step);
+  counter-increment: step;
+  width: 1.5rem;
+  margin-right: 1.5rem;
+  display: inline-block;
+  text-align: right;
+  color: #6e7681;
+}
+
+/* Remove default pre background to let our container handle it */
+.shiki {
+  background-color: transparent !important;
+  margin: 0 !important;
+}
+
+/* Interactive citations — briefly highlight referenced lines in the File Viewer */
+.shiki .line.line-highlight {
+  display: block;
+  background-color: rgba(99, 102, 241, 0.18);
+  box-shadow: inset 2px 0 0 #6366f1;
+  transition: background-color 0.4s ease;
+}

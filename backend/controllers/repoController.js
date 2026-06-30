@@ -7,30 +7,152 @@ const { buildFileTree, countFiles } = require('../utils/fileTree')
 const { extractFunctionsFromTree } = require('../utils/extractFunctions')
 const { getCodeEvolution } = require('../utils/gitEvolution')
 
-const CLONE_BASE = './temp_repos'
+const CLONE_BASE = path.resolve('./temp_repos')
+
+// Cap how many cloned repos linger on disk. The app is single-session (one
+// active repo at a time), so old clones are stale once a new repo is analyzed.
+const MAX_REPOS = 5
+
+// Repos with an in-flight /analyze. Never cleaned up mid-clone (race guard).
+const activeAnalyses = new Set()
+
+/**
+ * Bounds temp_repos growth. Keeps the active repo plus the most recently
+ * modified others up to MAX_REPOS, deleting the rest. Never removes the repo
+ * being kept or any repo with an in-flight analysis. Best-effort: failures are
+ * logged and never abort the request.
+ *
+ * @param {string} keepRepoName - the repo to always preserve (just analyzed)
+ */
+function cleanupOldRepos(keepRepoName) {
+  try {
+    if (!fs.existsSync(CLONE_BASE)) return
+
+    const dirs = fs.readdirSync(CLONE_BASE, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => {
+        const full = path.join(CLONE_BASE, entry.name)
+        let mtimeMs = 0
+        try { mtimeMs = fs.statSync(full).mtimeMs } catch { /* ignore */ }
+        return { name: entry.name, full, mtimeMs }
+      })
+
+    const removable = dirs
+      .filter(d => d.name !== keepRepoName && !activeAnalyses.has(d.name))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+
+    // Keep the active repo (always) + the newest (MAX_REPOS - 1) others.
+    const toDelete = removable.slice(MAX_REPOS - 1)
+
+    for (const dir of toDelete) {
+      try {
+        fs.rmSync(dir.full, { recursive: true, force: true })
+        console.log(`Cleaned up old repo: ${dir.name}`)
+      } catch (err) {
+        console.error(`Cleanup failed for ${dir.name}:`, err.message)
+      }
+    }
+  } catch (err) {
+    console.error('Repo cleanup error:', err.message)
+  }
+}
+
+/**
+ * Validates a GitHub URL and extracts the owner/repo identifier.
+ * Uses proper URL parsing instead of string prefix matching to prevent
+ * bypass attacks like https://github.com@evil.com/malicious-repo
+ *
+ * @param {string} url - The URL to validate
+ * @returns {{ valid: boolean, repoName?: string, error?: string }}
+ */
+function validateGitHubUrl(url) {
+  if (!url || typeof url !== 'string') {
+    return { valid: false, error: 'Repository URL is required' }
+  }
+
+  let parsed
+  try {
+    parsed = new URL(url)
+  } catch {
+    return { valid: false, error: 'Invalid URL format' }
+  }
+
+  // Must be HTTPS and exactly github.com (not github.com.evil.com)
+  if (parsed.protocol !== 'https:') {
+    return { valid: false, error: 'Only HTTPS URLs are allowed' }
+  }
+  if (parsed.hostname !== 'github.com') {
+    return { valid: false, error: 'Only github.com repositories are supported' }
+  }
+
+  // Path must be /owner/repo (optionally with .git suffix and trailing slash)
+  const cleanPath = parsed.pathname.replace(/\.git\/?$/, '').replace(/\/$/, '')
+  const segments = cleanPath.split('/').filter(Boolean)
+
+  if (segments.length !== 2) {
+    return { valid: false, error: 'URL must point to a repository (github.com/owner/repo)' }
+  }
+
+  const [owner, repo] = segments
+
+  // Prevent path traversal in repo names
+  if (owner.includes('..') || repo.includes('..')) {
+    return { valid: false, error: 'Invalid repository path' }
+  }
+
+  return {
+    valid: true,
+    repoName: `${owner}_${repo}`,
+    cloneUrl: `https://github.com/${owner}/${repo}.git`
+  }
+}
+
+/**
+ * Resolves a user-supplied file path and verifies it stays within
+ * the allowed base directory. Prevents path traversal attacks
+ * where filePath = "../../etc/passwd" would escape the clone dir.
+ *
+ * @param {string} basePath - The resolved base directory
+ * @param {string} userPath - The user-supplied relative path
+ * @returns {{ safe: boolean, resolvedPath?: string }}
+ */
+function safePath(basePath, userPath) {
+  const resolved = path.resolve(basePath, userPath)
+  // Ensure the resolved path starts with the base path + separator
+  // This catches ../ traversals because path.resolve normalizes them
+  if (!resolved.startsWith(basePath + path.sep) && resolved !== basePath) {
+    return { safe: false }
+  }
+  return { safe: true, resolvedPath: resolved }
+}
 
 async function analyzeRepo(req, res) {
   const { repoUrl } = req.body
 
-  if (!repoUrl || !repoUrl.startsWith('https://github.com')) {
-    return res.status(400).json({ error: 'Invalid GitHub URL' })
+  const validation = validateGitHubUrl(repoUrl)
+  if (!validation.valid) {
+    return res.status(400).json({ error: validation.error })
   }
 
-  const repoName = repoUrl
-    .replace('https://github.com/', '')
-    .replace('/', '_')
+  const repoName = validation.repoName
 
-  const clonePath = path.join(CLONE_BASE, repoName)
+  const clonePath = path.resolve(CLONE_BASE, repoName)
+
+  // Guard this repo against cleanup while its analysis is in flight.
+  activeAnalyses.add(repoName)
 
   try {
     if (!fs.existsSync(clonePath)) {
       fs.mkdirSync(CLONE_BASE, { recursive: true })
-      console.log(`Cloning ${repoUrl}...`)
-      await simpleGit().clone(repoUrl, clonePath)
+      console.log(`Cloning ${validation.cloneUrl}...`)
+      await simpleGit().clone(validation.cloneUrl, clonePath)
       console.log('Clone complete')
     } else {
       console.log('Repo already cloned, using cache')
     }
+
+    // Now that the target clone is present, prune stale repos (keeps this one).
+    cleanupOldRepos(repoName)
 
     const tree = buildFileTree(clonePath)
     const fileCount = countFiles(tree)
@@ -65,7 +187,7 @@ async function analyzeRepo(req, res) {
 
     try {
       const indexResponse = await axios.post(
-        'http://localhost:8001/index',
+        'http://127.0.0.1:8001/index',
         {
           repo_name: repoName,
           extracted_functions: extractedFunctions
@@ -91,6 +213,8 @@ async function analyzeRepo(req, res) {
   } catch (err) {
     console.error(err)
     return res.status(500).json({ error: 'Failed to analyze repo' })
+  } finally {
+    activeAnalyses.delete(repoName)
   }
 }
 
@@ -103,7 +227,7 @@ async function queryRepo(req, res) {
 
   try {
     const response = await axios.post(
-      'http://localhost:8001/query',
+      'http://127.0.0.1:8001/query',
       {
         repo_name: repoName,
         question
@@ -114,7 +238,9 @@ async function queryRepo(req, res) {
     return res.status(200).json(response.data)
   } catch (err) {
     console.error('Query error:', err.message)
-    return res.status(500).json({ error: 'Failed to query repo' })
+    const status = err.response?.status || 500
+    const detail = err.response?.data?.detail || 'Failed to query repo'
+    return res.status(status).json({ error: detail })
   }
 }
 
@@ -126,13 +252,21 @@ async function getFileContent(req, res) {
   }
 
   try {
-    const fullPath = path.join(CLONE_BASE, repoName, filePath)
+    const repoDir = path.resolve(CLONE_BASE, repoName)
 
-    if (!fs.existsSync(fullPath)) {
+    // --- Security: Path traversal protection ---
+    // Resolve the full path and verify it stays within the clone directory.
+    // Without this, filePath = "../../etc/passwd" would read arbitrary files.
+    const { safe, resolvedPath } = safePath(repoDir, filePath)
+    if (!safe) {
+      return res.status(403).json({ error: 'Access denied: path outside repository' })
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
       return res.status(404).json({ error: 'File not found' })
     }
 
-    const content = fs.readFileSync(fullPath, 'utf-8')
+    const content = fs.readFileSync(resolvedPath, 'utf-8')
     const lines = content.split('\n')
 
     return res.status(200).json({
@@ -160,7 +294,13 @@ async function getFunctionEvolution(req, res) {
   }
 
   try {
-    const clonePath = path.join(CLONE_BASE, repoName)
+    const clonePath = path.resolve(CLONE_BASE, repoName)
+
+    // --- Security: Path traversal protection ---
+    const { safe } = safePath(CLONE_BASE, repoName)
+    if (!safe) {
+      return res.status(403).json({ error: 'Access denied: invalid repository name' })
+    }
 
     const tree = buildFileTree(clonePath)
     const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
@@ -180,7 +320,7 @@ async function getFunctionEvolution(req, res) {
     let summary = ''
 
     try {
-      const aiResponse = await axios.post('http://localhost:8001/evolution-summary', {
+      const aiResponse = await axios.post('http://127.0.0.1:8001/evolution-summary', {
         history: functionData.history
       })
 

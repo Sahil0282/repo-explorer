@@ -1,35 +1,94 @@
 // src/pages/ChatPage.jsx
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import axios from "axios";
 import FileTree from "../components/FileTree";
 import FocusMap from "../components/FocusMap";
 import ChatMessage from "../components/ChatMessage";
 import FileViewer from "../components/FileViewer";
+import GitEvolution from "../components/GitEvolution";
+import { loadSession, saveSession } from "../lib/chatStorage";
 
 export default function ChatPage() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { repoName, fileCount, totalFunctions, tree } = location.state || {}
 
-  const [messages, setMessages] = useState([
-    {
-      role: "ai",
-      text: `Hi! I've analyzed **${repoName}** — ${fileCount} files, ${totalFunctions} functions indexed. What would you like to know about this codebase?`,
-      sourceFunctions: [],
-      sourceFiles: [],
-    },
-  ]);
+  // A fresh analysis arrives via router state; a page refresh has none, so we
+  // fall back to the persisted session in LocalStorage.
+  const fromNav = location.state?.repoName ? location.state : null;
+  const persisted = useMemo(() => (fromNav ? null : loadSession()), [fromNav]);
+
+  // Repository + metadata is fixed for the lifetime of a session.
+  const repository = useMemo(() => {
+    if (fromNav) {
+      return {
+        repoName: fromNav.repoName,
+        fileCount: fromNav.fileCount,
+        totalFunctions: fromNav.totalFunctions,
+        tree: fromNav.tree,
+      };
+    }
+    return persisted?.repository || null;
+  }, [fromNav, persisted]);
+
+  const repoName = repository?.repoName;
+  const fileCount = repository?.fileCount;
+  const totalFunctions = repository?.totalFunctions;
+  const tree = repository?.tree;
+
+  const [messages, setMessages] = useState(() => {
+    if (fromNav) {
+      return [
+        {
+          role: "ai",
+          text: `Hi! I've analyzed **${fromNav.repoName}** — ${fromNav.fileCount} files, ${fromNav.totalFunctions} functions indexed. What would you like to know about this codebase?`,
+          sourceFunctions: [],
+          sourceFiles: [],
+        },
+      ];
+    }
+    return persisted?.messages?.length ? persisted.messages : [];
+  });
   const [question, setQuestion] = useState("");
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("filetree");
-  const [focusData, setFocusData] = useState(null);
-  const [selectedFile, setSelectedFile] = useState(null);
+
+  // Viewer/UI state — restored from the persisted session on a refresh.
+  const vs = fromNav ? null : persisted?.viewerState;
+  const [activeTab, setActiveTab] = useState(vs?.activeTab || "filetree");
+  const [focusData, setFocusData] = useState(vs?.focusData || null);
+  const [selectedFile, setSelectedFile] = useState(vs?.selectedFile || null);
+  const [highlight, setHighlight] = useState(vs?.highlight || null);
+  const [selectedFunction, setSelectedFunction] = useState(vs?.selectedFunction || null);
+  const [evolutionTarget, setEvolutionTarget] = useState(null);
   const bottomRef = useRef(null);
 
   useEffect(() => {
     if (!repoName) navigate("/");
   }, [repoName]);
+
+  // Persist the session whenever meaningful state changes. Debounced so rapid
+  // updates coalesce; `question` is intentionally excluded so typing never
+  // triggers serialization.
+  useEffect(() => {
+    if (!repoName) return;
+    const id = setTimeout(() => {
+      saveSession({
+        repository,
+        messages,
+        viewerState: { activeTab, focusData, selectedFile, highlight, selectedFunction },
+      });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [
+    repoName,
+    repository,
+    messages,
+    activeTab,
+    focusData,
+    selectedFile,
+    highlight,
+    selectedFunction,
+  ]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -55,15 +114,17 @@ export default function ChatPage() {
         text: response.data.answer,
         sourceFiles: response.data.source_files,
         sourceFunctions: response.data.source_functions,
+        executionFlow: response.data.execution_flow,
       };
 
       setMessages((prev) => [...prev, aiMessage]);
     } catch (err) {
+      const errorMessage = err.response?.data?.error || "Something went wrong. Please try again.";
       setMessages((prev) => [
         ...prev,
         {
           role: "ai",
-          text: "Something went wrong. Please try again.",
+          text: errorMessage,
           sourceFiles: [],
           sourceFunctions: [],
         },
@@ -80,14 +141,46 @@ export default function ChatPage() {
     }
   }
 
-  function handleViewFocusMap(sourceFunctions, sourceFiles) {
-    setFocusData({ sourceFunctions, sourceFiles });
+  // Show the Execution Flow graph for an AI answer.
+  function handleViewFocusMap(executionFlow) {
+    setFocusData(executionFlow);
     setActiveTab("focusmap");
   }
 
+  // Opens a file in the File Viewer (used by the File Tree and by clickable
+  // file citations). Clears any active line highlight / selected function.
   function handleFileClick(filePath) {
     setSelectedFile(filePath);
+    setHighlight(null);
+    setSelectedFunction(null);
     setActiveTab("fileviewer");
+  }
+
+  // Open a function in the File Viewer: scroll to + highlight its lines, and
+  // mark it as the selected function (drives the "View Git Evolution" action).
+  // `fn` carries { file, name, startLine, endLine }.
+  function handleFunctionRef(fn) {
+    if (!fn?.file) return;
+    setSelectedFile(fn.file);
+    setHighlight({ startLine: fn.startLine, endLine: fn.endLine });
+    setSelectedFunction(fn.name ? fn : null);
+    setActiveTab("fileviewer");
+  }
+
+  // Click on an Execution Flow node. Code-backed nodes open in the File Viewer;
+  // function-backed nodes additionally become the selected function.
+  function handleOpenFlowNode(nodeData) {
+    if (!nodeData?.file) return;
+    if (nodeData.functionName) {
+      handleFunctionRef({
+        file: nodeData.file,
+        name: nodeData.functionName,
+        startLine: nodeData.startLine,
+        endLine: nodeData.endLine,
+      });
+    } else {
+      handleFileClick(nodeData.file);
+    }
   }
 
   return (
@@ -131,6 +224,8 @@ export default function ChatPage() {
                 key={i}
                 message={msg}
                 onViewFocusMap={handleViewFocusMap}
+                onFileRef={handleFileClick}
+                onFunctionRef={handleFunctionRef}
               />
             ))}
 
@@ -188,7 +283,7 @@ export default function ChatPage() {
                     : "text-[#555] hover:text-white"
                 }`}
               >
-                {tab === "filetree" ? "File Tree" : tab === "focusmap" ? "Focus Map" : "File Viewer"}
+                {tab === "filetree" ? "File Tree" : tab === "focusmap" ? "Execution Flow" : "File Viewer"}
               </button>
             ))}
           </div>
@@ -200,13 +295,26 @@ export default function ChatPage() {
                 <FileTree tree={tree || []} onFileClick={handleFileClick} />
               </div>
             ) : activeTab === "focusmap" ? (
-              <FocusMap data={focusData} repoName={repoName} />
+              <FocusMap data={focusData} onOpenNode={handleOpenFlowNode} />
             ) : (
-              <FileViewer repoName={repoName} filePath={selectedFile} />
+              <FileViewer
+                repoName={repoName}
+                filePath={selectedFile}
+                highlight={highlight}
+                selectedFunction={selectedFunction}
+                onViewEvolution={(fn) => setEvolutionTarget(fn)}
+              />
             )}
           </div>
         </div>
       </div>
+
+      {/* Git Evolution drawer */}
+      <GitEvolution
+        repoName={repoName}
+        target={evolutionTarget}
+        onClose={() => setEvolutionTarget(null)}
+      />
     </div>
   );
 }

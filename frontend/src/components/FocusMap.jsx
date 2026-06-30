@@ -1,148 +1,241 @@
-import { useState, useRef } from "react";
-import axios from "axios";
+import { useEffect, useMemo } from "react";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  Handle,
+  Position,
+  useNodesState,
+  useEdgesState,
+  useReactFlow,
+  ReactFlowProvider,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import dagre from "@dagrejs/dagre";
+import {
+  User,
+  Globe,
+  Settings2,
+  Code2,
+  Cog,
+  Sparkles,
+  Database,
+  CheckCircle2,
+} from "lucide-react";
 
-function FunctionNode({ fn, repoName }) {
-  const [hovered, setHovered] = useState(false);
-  const [code, setCode] = useState("");
-  const [loadingCode, setLoadingCode] = useState(false);
-  const [pos, setPos] = useState({ top: 0, left: 0 });
-  const nodeRef = useRef(null);
+// --- Node type styling: each execution-flow type gets a distinct appearance ---
+const TYPE_STYLE = {
+  user_action:        { icon: User,         color: "#94a3b8", bg: "#11161f", ring: "#334155", tag: "User Action" },
+  api_endpoint:       { icon: Globe,        color: "#60a5fa", bg: "#0b1626", ring: "#1e3a5f", tag: "API Endpoint" },
+  controller:         { icon: Settings2,    color: "#a78bfa", bg: "#15112a", ring: "#4c3a8a", tag: "Controller" },
+  function:           { icon: Code2,        color: "#818cf8", bg: "#13142b", ring: "#3730a3", tag: "Function" },
+  background_process: { icon: Cog,          color: "#fbbf24", bg: "#211a0d", ring: "#78540f", tag: "Process" },
+  ai_service:         { icon: Sparkles,     color: "#e879f9", bg: "#22102a", ring: "#86198f", tag: "AI Service" },
+  database:           { icon: Database,     color: "#2dd4bf", bg: "#0c211e", ring: "#155e54", tag: "Storage" },
+  output:             { icon: CheckCircle2, color: "#34d399", bg: "#0c2018", ring: "#15543f", tag: "Output" },
+};
 
-  async function handleHover() {
-    setHovered(true);
-    const rect = nodeRef.current.getBoundingClientRect();
-    const tooltipWidth = 500;
-    const spaceOnRight = window.innerWidth - rect.right;
+const NODE_W = 230;
+const NODE_H = 66;
 
-    const left =
-      spaceOnRight > tooltipWidth + 20
-        ? rect.right + 12
-        : rect.left - tooltipWidth - 12;
-
-    setPos({
-      top: Math.min(rect.top, window.innerHeight - 500),
-      left,
-    });
-
-    if (code) return;
-    setLoadingCode(true);
-    try {
-      const res = await axios.get("http://localhost:8000/api/repo/file", {
-        params: { repoName, filePath: fn.file },
-      });
-      const lines = res.data.lines;
-      const snippet = lines.slice(fn.startLine - 1, fn.endLine).join("\n");
-      setCode(snippet);
-    } catch {
-      setCode("// Could not load code");
-    } finally {
-      setLoadingCode(false);
-    }
-  }
+function FlowNode({ data, selected }) {
+  const style = TYPE_STYLE[data.execType] || TYPE_STYLE.function;
+  const Icon = style.icon;
+  const clickable = Boolean(data.file);
 
   return (
-    <>
-      <div
-        ref={nodeRef}
-        onMouseEnter={handleHover}
-        onMouseLeave={() => setHovered(false)}
-        className="flex items-center gap-2 bg-[#111] border border-[#1e1e1e] hover:border-[#6366f1]/60 rounded-lg px-3 py-1.5 cursor-pointer transition-all">
-        <div className="w-1.5 h-1.5 rounded-full bg-[#6366f1] shrink-0" />
-        <span className="text-[#ccc] text-xs font-mono">
-          {fn.name === "anonymous" || fn.name === "__file_summary__"
-            ? `${fn.file.split("/").pop()}:${fn.startLine}`
-            : fn.name}
+    <div
+      style={{
+        width: NODE_W,
+        background: style.bg,
+        borderColor: selected ? style.color : style.ring,
+      }}
+      className={`rounded-xl border px-3 py-2 shadow-lg transition-all ${
+        clickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
+      } ${selected ? "ring-2" : ""}`}
+    >
+      <Handle type="target" position={Position.Top} className="!bg-[#2a2a2a] !w-2 !h-2 !border-0" />
+
+      <div className="flex items-center gap-2">
+        <Icon size={15} style={{ color: style.color }} className="shrink-0" />
+        <span className="text-xs font-medium text-[#e5e7eb] leading-snug line-clamp-2">
+          {data.label}
         </span>
-        <span className="ml-auto text-[#444] text-xs">L{fn.startLine}</span>
       </div>
 
-      {hovered && (
-        <div
-          style={{ top: pos.top, left: pos.left, position: "fixed" }}
-          className="z-[9999] w-[500px] bg-[#0d0d1a] border border-[#6366f1]/30 rounded-xl shadow-2xl overflow-hidden"
-          onMouseEnter={() => setHovered(true)}
-          onMouseLeave={() => setHovered(false)}>
-          <div className="px-3 py-2 border-b border-[#1a1a1a]">
-            <span className="text-[#818cf8] text-xs font-mono truncate block">
-              {fn.file} · L{fn.startLine}–{fn.endLine}
-            </span>
-          </div>
-          <div className="overflow-auto max-h-[70vh]">
-            {loadingCode ? (
-              <div className="p-3 text-[#555] text-xs">Loading...</div>
-            ) : (
-              <table className="w-full text-xs font-mono">
-                <tbody>
-                  {code.split("\n").map((line, i) => (
-                    <tr key={i} className="hover:bg-[#111]">
-                      <td className="text-[#333] text-right px-2 py-0.5 select-none w-8">
-                        {fn.startLine + i}
-                      </td>
-                      <td className="text-[#ccc] px-2 py-0.5 whitespace-pre">
-                        {line || " "}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-    </>
+      <div className="flex items-center justify-between mt-1.5 gap-2">
+        <span
+          style={{ color: style.color }}
+          className="text-[9px] uppercase tracking-wider opacity-70 shrink-0"
+        >
+          {style.tag}
+        </span>
+        {data.file && (
+          <span className="text-[9px] text-[#5a5a5a] font-mono truncate">
+            {data.file.split("/").pop()}
+          </span>
+        )}
+      </div>
+
+      <Handle type="source" position={Position.Bottom} className="!bg-[#2a2a2a] !w-2 !h-2 !border-0" />
+    </div>
   );
 }
 
-export default function FocusMap({ data, repoName }) {
-  if (!data) {
+const nodeTypes = { flow: FlowNode };
+
+// --- Dagre auto-layout: turns the structured flow into a workflow diagram ---
+function layoutGraph(flowNodes, flowEdges) {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "TB", nodesep: 45, ranksep: 70, marginx: 20, marginy: 20 });
+
+  const ids = new Set(flowNodes.map((n) => n.id));
+  flowNodes.forEach((n) => g.setNode(n.id, { width: NODE_W, height: NODE_H }));
+  // only edges whose endpoints both exist (defensive — no phantom nodes)
+  const validEdges = flowEdges.filter((e) => ids.has(e.source) && ids.has(e.target));
+  validEdges.forEach((e) => g.setEdge(e.source, e.target));
+
+  dagre.layout(g);
+
+  const nodes = flowNodes.map((n) => {
+    const pos = g.node(n.id);
+    return {
+      id: n.id,
+      type: "flow",
+      position: { x: pos.x - NODE_W / 2, y: pos.y - NODE_H / 2 },
+      data: {
+        label: n.label,
+        execType: n.type,
+        file: n.file || null,
+        functionName: n.functionName || null,
+        startLine: n.startLine ?? null,
+        endLine: n.endLine ?? null,
+      },
+    };
+  });
+
+  const edges = validEdges.map((e, i) => ({
+    id: `e-${e.source}-${e.target}-${i}`,
+    source: e.source,
+    target: e.target,
+    label: e.label || undefined,
+    type: "smoothstep",
+    animated: true,
+    style: { stroke: "#6366f1", strokeWidth: 1.5, opacity: 0.6 },
+    labelStyle: { fill: "#818cf8", fontSize: 9 },
+    labelBgStyle: { fill: "#0d0d1a", fillOpacity: 0.9 },
+    labelBgPadding: [4, 2],
+  }));
+
+  return { nodes, edges };
+}
+
+// Distinct legend swatches for the node types present in the current flow.
+function Legend({ types }) {
+  if (!types.length) return null;
+  return (
+    <div className="absolute bottom-3 left-3 z-10 bg-[#0d0d1a]/90 border border-[#1e1e2e] rounded-lg px-2.5 py-2 space-y-1 max-w-[150px]">
+      {types.map((t) => {
+        const s = TYPE_STYLE[t];
+        if (!s) return null;
+        const Icon = s.icon;
+        return (
+          <div key={t} className="flex items-center gap-1.5">
+            <Icon size={11} style={{ color: s.color }} />
+            <span className="text-[9px] text-[#888]">{s.tag}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function FocusMapInner({ data, onOpenNode }) {
+  const { fitView } = useReactFlow();
+
+  const graph = useMemo(
+    () => layoutGraph(data.nodes, data.edges || []),
+    [data]
+  );
+
+  const [nodes, setNodes, onNodesChange] = useNodesState(graph.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
+
+  const legendTypes = useMemo(() => {
+    const present = [];
+    const seen = new Set();
+    (data.nodes || []).forEach((n) => {
+      if (!seen.has(n.type) && TYPE_STYLE[n.type]) {
+        seen.add(n.type);
+        present.push(n.type);
+      }
+    });
+    return present;
+  }, [data]);
+
+  // Re-layout + smoothly recenter whenever a new flow arrives.
+  useEffect(() => {
+    setNodes(graph.nodes);
+    setEdges(graph.edges);
+    const t = setTimeout(() => fitView({ duration: 500, padding: 0.18 }), 60);
+    return () => clearTimeout(t);
+  }, [graph, setNodes, setEdges, fitView]);
+
+  return (
+    <div className="h-full w-full relative">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onNodeClick={(_, node) => {
+          if (node.data.file) onOpenNode?.(node.data);
+        }}
+        nodeTypes={nodeTypes}
+        fitView
+        fitViewOptions={{ padding: 0.18 }}
+        minZoom={0.15}
+        maxZoom={1.6}
+        proOptions={{ hideAttribution: true }}
+        className="bg-[#0a0a0a]"
+      >
+        <Background color="#1a1a1a" gap={20} />
+        <Controls className="!bg-[#111] !border !border-[#1e1e1e] [&_button]:!bg-[#111] [&_button]:!border-[#1e1e1e] [&_button]:!fill-[#888]" />
+        <MiniMap
+          pannable
+          zoomable
+          nodeColor={(n) => (TYPE_STYLE[n.data?.execType] || TYPE_STYLE.function).color}
+          maskColor="rgba(10,10,10,0.7)"
+          className="!bg-[#0d0d1a] !border !border-[#1e1e2e]"
+          style={{ width: 110, height: 80 }}
+        />
+      </ReactFlow>
+
+      <p className="absolute top-3 left-3 text-[#444] text-xs pointer-events-none z-10">
+        Execution flow · click a code node to inspect it
+      </p>
+      <Legend types={legendTypes} />
+    </div>
+  );
+}
+
+export default function FocusMap({ data, onOpenNode }) {
+  if (!data || !data.nodes || data.nodes.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-[#444] text-sm p-4 text-center gap-2">
         <div className="text-4xl mb-2">🗺️</div>
         <p>Ask a question and click</p>
-        <p className="text-[#6366f1]">"View in Focus Map →"</p>
-        <p>to see the visual</p>
+        <p className="text-[#6366f1]">"View Execution Flow →"</p>
+        <p>to see how the code runs</p>
       </div>
     );
   }
 
-  const { sourceFunctions } = data;
-
-  const fileGroups = {};
-  sourceFunctions?.forEach((fn) => {
-    if (fn.name === "__file_summary__") return;
-    if (!fileGroups[fn.file]) fileGroups[fn.file] = [];
-    fileGroups[fn.file].push(fn);
-  });
-
-  const files = Object.keys(fileGroups);
-
   return (
-    <div className="h-full overflow-y-auto p-4 space-y-3">
-      <p className="text-[#444] text-xs mb-2">
-        Hover a function to see its code
-      </p>
-      {files.map((file, fi) => (
-        <div
-          key={fi}
-          className="border border-[#6366f1]/20 bg-[#0d0d1a] rounded-xl p-3">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 rounded-full bg-[#6366f1] shrink-0" />
-            <span className="text-[#818cf8] text-xs font-mono font-semibold truncate">
-              {file}
-            </span>
-          </div>
-          <div className="ml-4 space-y-2">
-            {fileGroups[file].map((fn, fni) => (
-              <FunctionNode key={fni} fn={fn} repoName={repoName} />
-            ))}
-          </div>
-        </div>
-      ))}
-      {files.length > 1 && (
-        <p className="text-center text-[#333] text-xs">
-          {files.length} files · {sourceFunctions?.length} functions involved
-        </p>
-      )}
-    </div>
+    <ReactFlowProvider>
+      <FocusMapInner data={data} onOpenNode={onOpenNode} />
+    </ReactFlowProvider>
   );
 }
