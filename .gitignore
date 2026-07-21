@@ -19,4 +19,6 @@ build/
 *.tex
 *.pdf
 *.png
+!docs/screenshots/*.png
 *.md
+!README.md
