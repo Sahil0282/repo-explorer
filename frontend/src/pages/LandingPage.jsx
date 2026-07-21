@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { ArrowRight, Loader2, Zap, Sparkles, Map } from 'lucide-react'
+import Brand from '../components/ui/Brand'
 
 const GithubIcon = ({ className }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
@@ -66,35 +67,51 @@ export default function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col font-sans selection:bg-indigo-500/30">
+    <div className="min-h-screen bg-base text-content-primary flex flex-col font-sans relative overflow-hidden">
+      {/* Ambient brand glow */}
+      <div className="pointer-events-none absolute inset-0 bg-brand-radial" />
+
+      {/* Top nav — brand wordmark */}
+      <header className="relative z-10 flex items-center justify-between px-6 md:px-10 py-5">
+        <Brand size="md" />
+        <a
+          href="https://github.com"
+          target="_blank"
+          rel="noreferrer"
+          className="text-content-muted hover:text-content-primary transition-colors"
+          title="GitHub"
+        >
+          <GithubIcon className="w-5 h-5" />
+        </a>
+      </header>
 
       {/* Hero Section */}
-      <div className="flex flex-col items-center justify-center flex-1 px-4 pt-32 pb-20">
+      <div className="relative z-10 flex flex-col items-center justify-center flex-1 px-4 pt-20 pb-20">
 
         {/* Badge */}
-        <div className="mb-8 px-4 py-1.5 rounded-full border border-indigo-500/30 bg-indigo-500/10 text-indigo-400 text-xs font-semibold tracking-widest uppercase shadow-[0_0_15px_rgba(99,102,241,0.2)]">
+        <div className="mb-8 px-4 py-1.5 rounded-full border border-brand/30 bg-brand/10 text-brand-400 text-xs font-semibold tracking-widest uppercase shadow-brand-glow">
           Understand any codebase
         </div>
 
         {/* Headline */}
         <h1 className="text-5xl md:text-7xl font-extrabold text-center leading-tight mb-8 max-w-4xl tracking-tight">
           Understand any codebase,{' '}
-          <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400">instantly.</span>
+          <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-400 to-brand-violet">instantly.</span>
         </h1>
 
         {/* Subheadline */}
-        <p className="text-[#888] text-lg md:text-xl text-center max-w-2xl mb-12 leading-relaxed">
+        <p className="text-content-secondary text-lg md:text-xl text-center max-w-2xl mb-12 leading-relaxed">
           Paste a GitHub URL. Ask questions in plain English. Get answers
           with a visual map of exactly which files and functions are involved.
         </p>
 
         {/* URL Input */}
         <div className="w-full max-w-2xl mb-4 relative z-10">
-          <div className={`flex items-center gap-3 bg-[#111] border rounded-2xl p-2 transition-all duration-300 shadow-2xl ${loading ? 'border-[#333] opacity-70' : 'border-[#333] hover:border-[#555] focus-within:border-indigo-500 focus-within:ring-4 focus-within:ring-indigo-500/10'}`}>
+          <div className={`flex items-center gap-3 bg-surface border rounded-2xl p-2 transition-all duration-300 shadow-2xl ${loading ? 'border-edge opacity-70' : 'border-edge hover:border-edge-strong focus-within:border-brand focus-within:ring-4 focus-within:ring-brand/10 focus-within:shadow-brand-glow'}`}>
             <div className="pl-3 shrink-0 flex items-center justify-center">
-              <GithubIcon className="w-5 h-5 text-[#666]" />
+              <GithubIcon className="w-5 h-5 text-content-muted" />
             </div>
-            
+
             <input
               type="text"
               placeholder="Paste GitHub repository URL..."
@@ -102,17 +119,17 @@ export default function LandingPage() {
               onChange={e => setRepoUrl(e.target.value)}
               onKeyDown={handleKeyDown}
               disabled={loading}
-              className="flex-1 bg-transparent text-white placeholder-[#555] outline-none text-base md:text-lg h-12 w-full disabled:cursor-not-allowed"
+              className="flex-1 bg-transparent text-content-primary placeholder-content-faint outline-none text-base md:text-lg h-12 w-full disabled:cursor-not-allowed"
             />
-            
+
             <button
               onClick={handleAnalyze}
               disabled={loading || !repoUrl.trim()}
-              className="shrink-0 bg-white text-black hover:bg-gray-200 disabled:opacity-50 disabled:hover:bg-white disabled:cursor-not-allowed rounded-xl px-5 h-12 text-sm font-semibold transition-all duration-200 flex items-center gap-2 group"
+              className="btn-primary group shrink-0 px-5 h-12 text-sm"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin text-indigo-600" />
+                  <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="hidden sm:inline">Analyzing</span>
                 </>
               ) : (
@@ -127,15 +144,15 @@ export default function LandingPage() {
           {/* Dynamic Loading State */}
           <div className="h-10 mt-3 flex items-center justify-center overflow-hidden">
             <div className={`transition-all duration-500 flex items-center gap-2 ${loading ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
-               <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-               <span className="text-sm font-medium text-indigo-300">{LOADING_MESSAGES[loadingMsgIdx]}</span>
+               <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
+               <span className="text-sm font-medium text-brand-400">{LOADING_MESSAGES[loadingMsgIdx]}</span>
             </div>
           </div>
 
           {/* Error message */}
           {error && (
             <div className="mt-3 text-center">
-              <span className="inline-block bg-red-500/10 border border-red-500/20 text-red-400 text-sm px-4 py-1.5 rounded-lg">
+              <span className="alert-error inline-block text-sm px-4 py-1.5">
                 {error}
               </span>
             </div>
@@ -151,39 +168,39 @@ export default function LandingPage() {
           ].map((card, i) => (
             <div
               key={i}
-              className="group relative bg-gradient-to-b from-[#161616] to-[#0a0a0a] border border-[#222] rounded-2xl p-6 hover:border-indigo-500/30 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_10px_40px_-15px_rgba(99,102,241,0.15)]"
+              className="group relative bg-gradient-to-b from-surface to-base border border-edge rounded-2xl p-6 hover:border-brand/40 transition-all duration-300 hover:-translate-y-1 hover:shadow-brand-glow-lg"
             >
-              <div className="w-12 h-12 rounded-xl bg-[#1e1e1e] border border-[#333] flex items-center justify-center mb-5 group-hover:bg-indigo-500/10 group-hover:border-indigo-500/20 group-hover:text-indigo-400 transition-colors">
-                <card.icon className="w-5 h-5 text-[#888] group-hover:text-indigo-400 transition-colors" />
+              <div className="w-12 h-12 rounded-xl bg-surface-raised border border-edge flex items-center justify-center mb-5 group-hover:bg-brand/10 group-hover:border-brand/30 transition-colors">
+                <card.icon className="w-5 h-5 text-content-muted group-hover:text-brand-400 transition-colors" />
               </div>
-              <h3 className="text-lg font-semibold text-white mb-2 tracking-tight">{card.title}</h3>
-              <p className="text-[#888] text-sm leading-relaxed">{card.desc}</p>
+              <h3 className="text-lg font-semibold text-content-primary mb-2 tracking-tight">{card.title}</h3>
+              <p className="text-content-secondary text-sm leading-relaxed">{card.desc}</p>
             </div>
           ))}
         </div>
       </div>
 
       {/* How it works */}
-      <div className="relative px-4 py-24 border-t border-[#111] overflow-hidden bg-[#0d0d0d]">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(99,102,241,0.05)_0%,transparent_70%)]"></div>
+      <div className="relative z-10 px-4 py-24 border-t border-edge-subtle overflow-hidden bg-surface-sunken">
+        <div className="absolute inset-0 bg-brand-radial"></div>
         <div className="relative z-10 max-w-4xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-16 tracking-tight">How it works</h2>
-          
+
           <div className="relative flex flex-col md:flex-row items-start justify-between gap-12 md:gap-8">
             {/* Connecting Dashed Line (Desktop only) */}
-            <div className="hidden md:block absolute top-6 left-[10%] right-[10%] h-[1px] border-t border-dashed border-[#333]"></div>
+            <div className="hidden md:block absolute top-6 left-[10%] right-[10%] h-[1px] border-t border-dashed border-edge"></div>
 
             {[
               { step: '1', title: 'Paste a public repo URL', desc: 'We securely clone and parse the AST of every relevant file in seconds.' },
               { step: '2', title: 'Ask natural questions', desc: 'Our embedded LLM understands the deep context and structure of the code.' },
               { step: '3', title: 'Get focused visuals', desc: 'Instead of just text, you get a beautiful node map of the exact call stack.' }
             ].map((item, i) => (
-              <div key={i} className="relative flex flex-col items-center text-center flex-1 bg-[#0d0d0d] px-4">
-                <div className="w-12 h-12 rounded-full bg-black border-2 border-[#333] text-[#888] flex items-center justify-center font-bold text-lg mb-6 shadow-xl relative z-10">
+              <div key={i} className="relative flex flex-col items-center text-center flex-1 bg-surface-sunken px-4">
+                <div className="w-12 h-12 rounded-full bg-base border-2 border-edge text-content-secondary flex items-center justify-center font-bold text-lg mb-6 shadow-xl relative z-10">
                   {item.step}
                 </div>
-                <h3 className="text-lg font-semibold mb-3 tracking-tight text-white">{item.title}</h3>
-                <p className="text-[#777] text-sm leading-relaxed max-w-[250px]">{item.desc}</p>
+                <h3 className="text-lg font-semibold mb-3 tracking-tight text-content-primary">{item.title}</h3>
+                <p className="text-content-muted text-sm leading-relaxed max-w-[250px]">{item.desc}</p>
               </div>
             ))}
           </div>

@@ -8,10 +8,105 @@
   box-sizing: border-box;
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
-  background-color: #0a0a0a;
-  color: #ffffff;
-  font-family: 'Inter', sans-serif;
+  background-color: #0b0b0f;
+  color: #f4f4f5;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Use JetBrains Mono everywhere code is shown (citations, Shiki output). */
+code,
+pre,
+.shiki,
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+/* --- Typography base: consistent heading rhythm across the app --- */
+@layer base {
+  h1, h2, h3, h4 {
+    @apply tracking-tight text-content-primary;
+  }
+}
+
+/* --- Reusable component classes: single source of truth for the
+   patterns that recur across pages (buttons, inputs, cards, badges).
+   Keeps styling DRY so the whole app restyles from one place. --- */
+@layer components {
+  /* Primary action — the indigo→violet brand gradient */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 bg-brand-gradient text-white font-semibold
+           rounded-btn transition-all duration-200 hover:opacity-90 hover:shadow-brand-glow
+           disabled:opacity-40 disabled:hover:shadow-none disabled:cursor-not-allowed;
+  }
+
+  /* Secondary / quiet text button */
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 text-content-muted hover:text-content-primary
+           transition-colors;
+  }
+
+  /* Soft brand "chip" button (e.g. View Execution Flow) */
+  .btn-soft {
+    @apply inline-flex items-center gap-1.5 text-brand-400 hover:text-content-primary
+           bg-brand/10 hover:bg-brand/20 border border-brand/25 rounded-lg transition-colors;
+  }
+
+  /* Input / textarea shell with brand focus ring + glow */
+  .input-shell {
+    @apply bg-surface border border-edge-subtle rounded-btn transition-all
+           focus-within:border-brand/50 focus-within:ring-2 focus-within:ring-brand/10
+           focus-within:shadow-brand-glow;
+  }
+
+  /* Elevated surface card */
+  .surface-card {
+    @apply bg-surface border border-edge-subtle rounded-card;
+  }
+
+  /* Base pill badge — pair with a color variant utility */
+  .badge {
+    @apply inline-flex items-center text-xs font-medium px-2.5 py-1 rounded-pill border;
+  }
+  .badge-brand {
+    @apply bg-brand/15 text-brand-400 border-brand/30;
+  }
+  .badge-neutral {
+    @apply bg-surface text-content-secondary border-edge-subtle;
+  }
+
+  /* Inline error/danger callout — single source of truth for error states */
+  .alert-error {
+    @apply text-accent-red bg-accent-red/10 border border-accent-red/20 rounded-lg;
+  }
+}
+
+/* Brand-tinted selection + scrollbars for a cohesive feel. */
+::selection {
+  background-color: rgba(99, 102, 241, 0.3);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-color: #2a2a3a;
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: #3a3a4f;
 }
 
 /* Shiki Syntax Highlighting Customizations */

@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import { History, FileCode2 } from 'lucide-react'
 import CodeBlock from './CodeBlock'
+import EmptyState from './ui/EmptyState'
 
 export default function FileViewer({ repoName, filePath, highlight, selectedFunction, onViewEvolution }) {
   const [content, setContent] = useState('')
@@ -69,15 +71,15 @@ export default function FileViewer({ repoName, filePath, highlight, selectedFunc
 
   if (!filePath) {
     return (
-      <div className="h-full flex items-center justify-center text-[#444] text-sm">
-        Click a file in the File Tree to view its contents
-      </div>
+      <EmptyState icon={FileCode2} iconClassName="text-content-muted">
+        <p>Click a file in the File Tree to view its contents</p>
+      </EmptyState>
     )
   }
 
   if (loading) {
     return (
-      <div className="h-full flex items-center justify-center text-[#555] text-sm">
+      <div className="h-full flex items-center justify-center text-content-muted text-sm">
         Loading...
       </div>
     )
@@ -85,7 +87,7 @@ export default function FileViewer({ repoName, filePath, highlight, selectedFunc
 
   if (error) {
     return (
-      <div className="h-full flex items-center justify-center text-red-400 text-sm">
+      <div className="h-full flex items-center justify-center text-accent-red text-sm">
         {error}
       </div>
     )
@@ -97,18 +99,18 @@ export default function FileViewer({ repoName, filePath, highlight, selectedFunc
     selectedFunction && selectedFunction.name && selectedFunction.file === filePath
 
   return (
-    <div ref={containerRef} className="h-full flex flex-col p-4 bg-[#0a0a0a]">
+    <div ref={containerRef} className="h-full flex flex-col p-4 bg-base">
       {showFnBar && (
-        <div className="flex items-center justify-between mb-2 px-3 py-2 bg-[#13142b] border border-[#3730a3]/40 rounded-lg shrink-0">
-          <span className="text-[#818cf8] text-xs font-mono truncate">
+        <div className="flex items-center justify-between mb-2 px-3 py-2 bg-brand/10 border border-brand/30 rounded-lg shrink-0">
+          <span className="text-brand-400 text-xs font-mono truncate">
             {selectedFunction.name}()
           </span>
           <button
             onClick={() => onViewEvolution?.(selectedFunction)}
-            className="text-[#818cf8] hover:text-white text-xs flex items-center gap-1 shrink-0 ml-2"
+            className="text-brand-400 hover:text-content-primary text-xs flex items-center gap-1.5 shrink-0 ml-2 transition-colors"
             title="View Git Evolution for this function"
           >
-            🕒 View Git Evolution
+            <History size={13} /> View Git Evolution
           </button>
         </div>
       )}

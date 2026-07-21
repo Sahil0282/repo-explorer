@@ -41,19 +41,19 @@ export default function CodeBlock({ code, language = 'text', title, showLineNumb
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const containerClass = `rounded-xl overflow-hidden border border-[#1e1e1e] bg-[#0d1117] flex flex-col ${className}`;
+  const containerClass = `rounded-xl overflow-hidden border border-edge-subtle bg-surface-sunken flex flex-col ${className}`;
 
   return (
     <div className={containerClass}>
       {/* Top Bar */}
-      <div className="flex items-center justify-between px-4 py-2 bg-[#161b22] border-b border-[#1e1e1e] shrink-0">
-        <span className="text-xs font-mono text-[#8b949e]">{title || language || 'text'}</span>
+      <div className="flex items-center justify-between px-4 py-2 bg-surface border-b border-edge-subtle shrink-0">
+        <span className="text-xs font-mono text-content-muted truncate">{title || language || 'text'}</span>
         <button
           onClick={handleCopy}
-          className="text-[#8b949e] hover:text-[#c9d1d9] transition-colors flex items-center gap-1 text-xs"
+          className="text-content-muted hover:text-content-primary transition-colors flex items-center gap-1 text-xs shrink-0 ml-2"
           title="Copy code"
         >
-          {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+          {copied ? <Check size={14} className="text-accent-green" /> : <Copy size={14} />}
           {copied ? 'Copied!' : 'Copy'}
         </button>
       </div>
@@ -63,7 +63,7 @@ export default function CodeBlock({ code, language = 'text', title, showLineNumb
         {html ? (
           <div dangerouslySetInnerHTML={{ __html: html }} />
         ) : (
-          <pre className="font-mono text-[#c9d1d9]"><code>{code}</code></pre>
+          <pre className="font-mono text-content-secondary"><code>{code}</code></pre>
         )}
       </div>
     </div>

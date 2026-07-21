@@ -1,34 +1,52 @@
 import { useState } from 'react'
+import { File, Folder, FolderOpen } from 'lucide-react'
 
-function TreeNode({ node, onFileClick }) {
+function TreeNode({ node, onFileClick, depth = 0 }) {
   const [open, setOpen] = useState(true)
 
   if (node.type === 'file') {
     return (
-      <div
+      <button
+        type="button"
         onClick={() => onFileClick(node.path)}
-        className="flex items-center gap-2 py-0.5 px-2 hover:bg-[#111] rounded text-[#888] hover:text-[#818cf8] text-xs cursor-pointer transition-colors"
+        className="group flex items-center gap-2.5 w-full py-1.5 px-2 rounded-md hover:bg-surface text-left transition-colors"
       >
-        <span>📄</span>
-        <span>{node.name}</span>
-      </div>
+        <File
+          size={16}
+          strokeWidth={1.75}
+          className="shrink-0 text-content-muted group-hover:text-brand-400 transition-colors"
+        />
+        <span className="truncate text-[13px] text-content-secondary group-hover:text-content-primary transition-colors">
+          {node.name}
+        </span>
+      </button>
     )
   }
 
+  const Icon = open ? FolderOpen : Folder
+
   return (
     <div>
-      <div
+      <button
+        type="button"
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 py-0.5 px-2 hover:bg-[#111] rounded text-[#666] hover:text-white text-xs cursor-pointer"
+        className="group flex items-center gap-2.5 w-full py-1.5 px-2 rounded-md hover:bg-surface text-left transition-colors"
       >
-        <span>{open ? '▾' : '▸'}</span>
-        <span>📁</span>
-        <span>{node.name}</span>
-      </div>
+        <Icon
+          size={16}
+          strokeWidth={1.75}
+          className="shrink-0 text-content-secondary group-hover:text-brand-400 transition-colors"
+        />
+        <span className="truncate text-[13px] font-medium text-content-primary">
+          {node.name}
+        </span>
+      </button>
+
       {open && node.children && (
-        <div className="ml-4">
+        // Indent guide: a thin vertical connector aligned under the folder icon.
+        <div className="ml-[15px] pl-3 border-l border-edge-subtle">
           {node.children.map((child, i) => (
-            <TreeNode key={i} node={child} onFileClick={onFileClick} />
+            <TreeNode key={i} node={child} onFileClick={onFileClick} depth={depth + 1} />
           ))}
         </div>
       )}
@@ -38,10 +56,10 @@ function TreeNode({ node, onFileClick }) {
 
 export default function FileTree({ tree, onFileClick }) {
   if (!tree || tree.length === 0) {
-    return <p className="text-[#444] text-xs p-4">No file tree available</p>
+    return <p className="text-content-faint text-xs p-4">No file tree available</p>
   }
   return (
-    <div className="font-mono">
+    <div className="select-none">
       {tree.map((node, i) => (
         <TreeNode key={i} node={node} onFileClick={onFileClick} />
       ))}

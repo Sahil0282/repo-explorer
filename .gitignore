@@ -16,3 +16,7 @@ backend/temp_repos/
 dist/
 build/
 .DS_Store
+*.tex
+*.pdf
+*.png
+*.md

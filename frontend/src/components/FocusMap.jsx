@@ -13,6 +13,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import dagre from "@dagrejs/dagre";
+import EmptyState from "./ui/EmptyState";
 import {
   User,
   Globe,
@@ -22,6 +23,7 @@ import {
   Sparkles,
   Database,
   CheckCircle2,
+  Map as MapIcon,
 } from "lucide-react";
 
 // --- Node type styling: each execution-flow type gets a distinct appearance ---
@@ -55,11 +57,11 @@ function FlowNode({ data, selected }) {
         clickable ? "cursor-pointer hover:brightness-125" : "cursor-default"
       } ${selected ? "ring-2" : ""}`}
     >
-      <Handle type="target" position={Position.Top} className="!bg-[#2a2a2a] !w-2 !h-2 !border-0" />
+      <Handle type="target" position={Position.Top} className="!bg-edge-strong !w-2 !h-2 !border-0" />
 
       <div className="flex items-center gap-2">
         <Icon size={15} style={{ color: style.color }} className="shrink-0" />
-        <span className="text-xs font-medium text-[#e5e7eb] leading-snug line-clamp-2">
+        <span className="text-xs font-medium text-content-primary leading-snug line-clamp-2">
           {data.label}
         </span>
       </div>
@@ -72,13 +74,13 @@ function FlowNode({ data, selected }) {
           {style.tag}
         </span>
         {data.file && (
-          <span className="text-[9px] text-[#5a5a5a] font-mono truncate">
+          <span className="text-[9px] text-content-muted font-mono truncate">
             {data.file.split("/").pop()}
           </span>
         )}
       </div>
 
-      <Handle type="source" position={Position.Bottom} className="!bg-[#2a2a2a] !w-2 !h-2 !border-0" />
+      <Handle type="source" position={Position.Bottom} className="!bg-edge-strong !w-2 !h-2 !border-0" />
     </div>
   );
 }
@@ -136,7 +138,7 @@ function layoutGraph(flowNodes, flowEdges) {
 function Legend({ types }) {
   if (!types.length) return null;
   return (
-    <div className="absolute bottom-3 left-3 z-10 bg-[#0d0d1a]/90 border border-[#1e1e2e] rounded-lg px-2.5 py-2 space-y-1 max-w-[150px]">
+    <div className="absolute bottom-3 left-3 z-10 bg-surface/90 backdrop-blur-sm border border-edge-subtle rounded-lg px-2.5 py-2 space-y-1 max-w-[150px]">
       {types.map((t) => {
         const s = TYPE_STYLE[t];
         if (!s) return null;
@@ -144,7 +146,7 @@ function Legend({ types }) {
         return (
           <div key={t} className="flex items-center gap-1.5">
             <Icon size={11} style={{ color: s.color }} />
-            <span className="text-[9px] text-[#888]">{s.tag}</span>
+            <span className="text-[9px] text-content-secondary">{s.tag}</span>
           </div>
         );
       })}
@@ -199,21 +201,21 @@ function FocusMapInner({ data, onOpenNode }) {
         minZoom={0.15}
         maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
-        className="bg-[#0a0a0a]"
+        className="bg-base"
       >
-        <Background color="#1a1a1a" gap={20} />
-        <Controls className="!bg-[#111] !border !border-[#1e1e1e] [&_button]:!bg-[#111] [&_button]:!border-[#1e1e1e] [&_button]:!fill-[#888]" />
+        <Background color="#1E1E2A" gap={20} />
+        <Controls className="!bg-surface !border !border-edge-subtle [&_button]:!bg-surface [&_button]:!border-edge-subtle [&_button]:!fill-content-secondary [&_button:hover]:!bg-surface-raised" />
         <MiniMap
           pannable
           zoomable
           nodeColor={(n) => (TYPE_STYLE[n.data?.execType] || TYPE_STYLE.function).color}
-          maskColor="rgba(10,10,10,0.7)"
-          className="!bg-[#0d0d1a] !border !border-[#1e1e2e]"
+          maskColor="rgba(11,11,15,0.7)"
+          className="!bg-surface !border !border-edge-subtle"
           style={{ width: 110, height: 80 }}
         />
       </ReactFlow>
 
-      <p className="absolute top-3 left-3 text-[#444] text-xs pointer-events-none z-10">
+      <p className="absolute top-3 left-3 text-content-muted text-xs pointer-events-none z-10">
         Execution flow · click a code node to inspect it
       </p>
       <Legend types={legendTypes} />
@@ -224,12 +226,11 @@ function FocusMapInner({ data, onOpenNode }) {
 export default function FocusMap({ data, onOpenNode }) {
   if (!data || !data.nodes || data.nodes.length === 0) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-[#444] text-sm p-4 text-center gap-2">
-        <div className="text-4xl mb-2">🗺️</div>
+      <EmptyState icon={MapIcon}>
         <p>Ask a question and click</p>
-        <p className="text-[#6366f1]">"View Execution Flow →"</p>
+        <p className="text-brand-400 font-medium">"View Execution Flow →"</p>
         <p>to see how the code runs</p>
-      </div>
+      </EmptyState>
     );
   }
 

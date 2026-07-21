@@ -1,5 +1,8 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
+import { History, X, Sparkles, ScrollText } from "lucide-react";
+import LoadingDots from "./ui/LoadingDots";
+import EmptyState from "./ui/EmptyState";
 
 function shortHash(hash) {
   return hash ? hash.slice(0, 7) : "";
@@ -90,75 +93,66 @@ export default function GitEvolution({ repoName, target, onClose }) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/50 z-40 transition-opacity"
+        className="fixed inset-0 bg-base/70 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
 
       {/* Drawer */}
-      <div className="fixed top-0 right-0 h-full w-full max-w-[460px] bg-[#0a0a0a] border-l border-[#1a1a1a] z-50 flex flex-col shadow-2xl">
+      <div className="fixed top-0 right-0 h-full w-full max-w-[460px] bg-base border-l border-edge-subtle z-50 flex flex-col shadow-2xl">
         {/* Header */}
-        <div className="flex items-start justify-between px-5 py-4 border-b border-[#1a1a1a] shrink-0">
+        <div className="flex items-start justify-between px-5 py-4 border-b border-edge-subtle shrink-0">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <span className="text-base">🕒</span>
-              <h2 className="text-sm font-semibold text-white">Git Evolution</h2>
+              <History size={16} className="text-brand-400" />
+              <h2 className="text-sm font-semibold text-content-primary">Git Evolution</h2>
             </div>
-            <p className="text-[#818cf8] text-xs font-mono mt-1 truncate">
+            <p className="text-brand-400 text-xs font-mono mt-1 truncate">
               {target.name}
             </p>
-            <p className="text-[#555] text-xs font-mono truncate">
+            <p className="text-content-muted text-xs font-mono truncate">
               {target.file}
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-[#555] hover:text-white text-sm ml-3 shrink-0"
+            className="text-content-muted hover:text-content-primary ml-3 shrink-0 transition-colors"
+            title="Close"
           >
-            ✕
+            <X size={16} />
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && (
-            <div className="flex items-center gap-2 text-[#555] text-sm">
-              <div className="flex gap-1">
-                <span className="w-1.5 h-1.5 bg-[#6366f1] rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
-                <span className="w-1.5 h-1.5 bg-[#6366f1] rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
-                <span className="w-1.5 h-1.5 bg-[#6366f1] rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
-              </div>
-              Analyzing history...
-            </div>
-          )}
+          {loading && <LoadingDots label="Analyzing history..." />}
 
           {error && (
-            <div className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 rounded-lg px-4 py-3">
+            <div className="alert-error text-sm px-4 py-3">
               {error}
             </div>
           )}
 
           {isEmpty && (
-            <div className="h-full flex flex-col items-center justify-center text-center text-[#444] text-sm gap-2 pt-16">
-              <div className="text-3xl mb-1">📜</div>
+            <EmptyState icon={ScrollText} iconClassName="text-content-faint" className="pt-16">
               <p>No recorded changes for this function</p>
-              <p className="text-[#333]">
+              <p className="text-content-faint">
                 It may be new, unchanged, or outside the last 20 commits.
               </p>
-            </div>
+            </EmptyState>
           )}
 
           {!loading && !error && !isEmpty && (
             <>
               {/* AI Summary */}
               {data.summary && (
-                <div className="mb-6 bg-[#0d0d1a] border border-[#6366f1]/20 rounded-xl p-4">
+                <div className="mb-6 bg-brand/5 border border-brand/20 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs">✨</span>
-                    <span className="text-[#818cf8] text-xs font-semibold uppercase tracking-wide">
+                    <Sparkles size={13} className="text-brand-400" />
+                    <span className="text-brand-400 text-xs font-semibold uppercase tracking-wide">
                       AI Summary
                     </span>
                   </div>
-                  <p className="text-[#ccc] text-sm leading-relaxed whitespace-pre-line">
+                  <p className="text-content-secondary text-sm leading-relaxed whitespace-pre-line">
                     {data.summary}
                   </p>
                 </div>
@@ -166,28 +160,28 @@ export default function GitEvolution({ repoName, target, onClose }) {
 
               {/* Commit Timeline */}
               <div className="flex items-center gap-2 mb-3">
-                <span className="text-[#666] text-xs font-semibold uppercase tracking-wide">
+                <span className="text-content-muted text-xs font-semibold uppercase tracking-wide">
                   Timeline
                 </span>
-                <span className="text-[#333] text-xs">
+                <span className="text-content-faint text-xs">
                   {groups.length} commit{groups.length !== 1 ? "s" : ""}
                 </span>
               </div>
 
               <div className="relative pl-4">
                 {/* vertical line */}
-                <div className="absolute left-[5px] top-1 bottom-1 w-px bg-[#1e1e1e]" />
+                <div className="absolute left-[5px] top-1 bottom-1 w-px bg-edge" />
 
                 {groups.map((group, gi) => (
                   <div key={gi} className="relative mb-5 last:mb-0">
                     {/* dot */}
-                    <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-[#6366f1] border-2 border-[#0a0a0a]" />
+                    <div className="absolute -left-4 top-1 w-2.5 h-2.5 rounded-full bg-brand-gradient border-2 border-base" />
 
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[#818cf8] text-xs font-mono">
+                      <span className="text-brand-400 text-xs font-mono">
                         {shortHash(group.commit)}
                       </span>
-                      <span className="text-[#555] text-xs">
+                      <span className="text-content-muted text-xs">
                         {formatDate(group.date)}
                       </span>
                     </div>
@@ -201,13 +195,13 @@ export default function GitEvolution({ repoName, target, onClose }) {
                           <span
                             className={`shrink-0 ${
                               c.changeType === "add"
-                                ? "text-green-400"
-                                : "text-red-400"
+                                ? "text-accent-green"
+                                : "text-accent-red"
                             }`}
                           >
                             {c.changeType === "add" ? "+" : "−"}
                           </span>
-                          <span className="text-[#999] break-all whitespace-pre-wrap">
+                          <span className="text-content-secondary break-all whitespace-pre-wrap">
                             {c.preview || "(empty line)"}
                           </span>
                         </div>

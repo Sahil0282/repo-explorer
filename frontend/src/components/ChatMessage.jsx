@@ -1,4 +1,5 @@
 import ReactMarkdown from 'react-markdown'
+import { Map } from 'lucide-react'
 import CodeBlock from './CodeBlock'
 
 // Flatten ReactMarkdown's `children` (string | array | node) into plain text.
@@ -35,10 +36,10 @@ function resolveCitation(token, sourceFiles = [], sourceFunctions = []) {
 export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunctionRef }) {
   return (
     <div className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[85%] rounded-xl px-4 py-3 text-sm ${
+      <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm ${
         message.role === 'user'
-          ? 'bg-[#6366f1] text-white'
-          : 'bg-[#111] border border-[#1e1e1e] text-[#ccc]'
+          ? 'bg-brand-gradient text-white shadow-brand-glow rounded-br-md'
+          : 'bg-surface border border-edge-subtle text-content-secondary rounded-bl-md'
       }`}>
         {message.role === 'user' ? (
           <p>{message.text}</p>
@@ -46,7 +47,7 @@ export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunc
           <ReactMarkdown
             components={{
               p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
-              strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+              strong: ({ children }) => <strong className="text-content-primary font-semibold">{children}</strong>,
               ol: ({ children }) => <ol className="list-decimal list-inside space-y-1 mb-2">{children}</ol>,
               ul: ({ children }) => <ul className="list-disc list-inside space-y-1 mb-2">{children}</ul>,
               li: ({ children }) => <li className="leading-relaxed">{children}</li>,
@@ -61,7 +62,7 @@ export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunc
                     />
                   )
                 }
-                return <pre className="bg-[#111] p-3 rounded-xl overflow-auto my-3" {...props}>{children}</pre>
+                return <pre className="bg-surface-sunken p-3 rounded-xl overflow-auto my-3" {...props}>{children}</pre>
               },
               code: ({ children, ...props }) => {
                 const token = childrenToText(children)
@@ -80,7 +81,7 @@ export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunc
                     <code
                       onClick={handleClick}
                       title={citation.type === 'file' ? 'Open in File Viewer' : 'Jump to function'}
-                      className="bg-[#1a1a2e] text-[#818cf8] px-1.5 py-0.5 rounded text-sm font-mono break-words cursor-pointer hover:bg-[#6366f1]/30 hover:underline transition-colors"
+                      className="bg-brand/15 text-brand-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono break-words cursor-pointer hover:bg-brand/30 hover:underline transition-colors"
                       {...props}
                     >
                       {children}
@@ -89,7 +90,7 @@ export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunc
                 }
 
                 return (
-                  <code className="bg-[#1a1a2e] text-[#818cf8] px-1.5 py-0.5 rounded text-sm font-mono break-words" {...props}>
+                  <code className="bg-brand/15 text-brand-400 px-1.5 py-0.5 rounded text-[0.85em] font-mono break-words" {...props}>
                     {children}
                   </code>
                 )
@@ -103,9 +104,9 @@ export default function ChatMessage({ message, onViewFocusMap, onFileRef, onFunc
         {message.role === 'ai' && message.executionFlow?.nodes?.length > 0 && (
           <button
             onClick={() => onViewFocusMap(message.executionFlow)}
-            className="mt-3 text-[#818cf8] text-xs hover:underline flex items-center gap-1"
+            className="btn-soft mt-3 text-xs font-medium px-2.5 py-1.5"
           >
-            View Execution Flow →
+            <Map size={13} /> View Execution Flow →
           </button>
         )}
       </div>
