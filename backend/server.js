@@ -5,7 +5,8 @@ require("dotenv").config()
 
 const repoRoutes = require('./routes/repo')
 
-const app = express()
+const app = express();
+app.set('trust proxy', 1);
 
 // --- Security: CORS origin allowlist ---
 // Only allow requests from the frontend origin, not from any domain.
