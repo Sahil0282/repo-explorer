@@ -1,6 +1,6 @@
 const express = require('express')
 const rateLimit = require('express-rate-limit')
-const { analyzeRepo, queryRepo, getFileContent, getFunctionEvolution } = require('../controllers/repoController')
+const { analyzeRepo, queryRepo, getFileContent, getFunctionEvolution, getIndexStatus } = require('../controllers/repoController')
 
 const router = express.Router()
 
@@ -25,6 +25,7 @@ const queryLimiter = rateLimit({
 router.post('/analyze', analyzeLimiter, analyzeRepo)
 router.post('/query', queryLimiter, queryRepo)
 router.get('/file', getFileContent)
-router.get('/evolution', getFunctionEvolution) 
+router.get('/evolution', getFunctionEvolution)
+router.get('/index-status', getIndexStatus)
 
 module.exports = router

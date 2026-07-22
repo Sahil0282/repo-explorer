@@ -26,4 +26,6 @@ def embed_batch(texts: list[str]) -> list[list[float]]:
     the model processes them in parallel internally.
     Use this when indexing all 3093 functions at once.
     """
-    return model.encode(texts, batch_size=64, show_progress_bar=True).tolist()
+    # batch_size 16 keeps peak memory low enough for small (512MB) hosts;
+    # progress bar off — it just floods server logs.
+    return model.encode(texts, batch_size=16, show_progress_bar=False).tolist()

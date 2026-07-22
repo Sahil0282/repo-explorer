@@ -38,6 +38,27 @@ export default function LandingPage() {
     return () => clearInterval(interval)
   }, [loading])
 
+  // Indexing runs in the background on the server; poll until it's done so
+  // the chat never opens against a half-indexed repo. Short poll requests
+  // survive free-tier proxy timeouts where one long request would be killed.
+  async function waitForIndexing(repoName) {
+    const deadline = Date.now() + 240000 // 4 minutes
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 4000))
+      try {
+        const res = await axios.get(`${API_URL}/api/repo/index-status`, {
+          params: { repoName },
+          timeout: 15000
+        })
+        if (res.data.status === 'indexed') return true
+        if (res.data.status === 'failed') return false
+      } catch {
+        // transient poll failure — keep trying until the deadline
+      }
+    }
+    return false
+  }
+
   async function handleAnalyze() {
     if (!repoUrl.trim()) return
     setLoading(true)
@@ -48,13 +69,24 @@ export default function LandingPage() {
         repoUrl
       }, { timeout: 300000 })
 
-      navigate('/chat', {
-        state: {
-          repoName: response.data.repoName,
-          fileCount: response.data.fileCount,
-          totalFunctions: response.data.totalFunctions,
-          tree: response.data.tree
+      const { repoName, fileCount, totalFunctions, tree, indexStatus } = response.data
+
+      if (indexStatus === 'failed') {
+        setError('Could not reach the AI indexing service. Please try again in a minute.')
+        return
+      }
+
+      // Wait for background indexing to finish before entering chat.
+      if (indexStatus !== 'already_indexed') {
+        const ready = await waitForIndexing(repoName)
+        if (!ready) {
+          setError('Code indexing is taking longer than expected. Please try again.')
+          return
         }
+      }
+
+      navigate('/chat', {
+        state: { repoName, fileCount, totalFunctions, tree }
       })
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to analyze repo. Check the URL and try again.')

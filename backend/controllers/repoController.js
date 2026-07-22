@@ -189,6 +189,12 @@ async function analyzeRepo(req, res) {
 
     console.log('Sending to AI service for indexing...')
 
+    // /index returns immediately ("indexing" | "already_indexed") while
+    // embedding runs in the background on the AI service — the frontend
+    // polls GET /index-status until it's ready. A failure here is surfaced
+    // as indexStatus: "failed" instead of silently dropping the user into
+    // a chat whose repo was never indexed.
+    let indexStatus = 'failed'
     try {
       const indexResponse = await axios.post(
         `${AI_SERVICE_URL}/index`,
@@ -196,12 +202,10 @@ async function analyzeRepo(req, res) {
           repo_name: repoName,
           extracted_functions: extractedFunctions
         },
-        {
-          timeout: 300000
-        }
+        { timeout: 60000 }
       )
-
-      console.log('AI service response:', indexResponse.data.status)
+      indexStatus = indexResponse.data.status
+      console.log('AI service response:', indexStatus)
     } catch (aiErr) {
       console.error('AI service error:', aiErr.message)
     }
@@ -211,7 +215,8 @@ async function analyzeRepo(req, res) {
       fileCount,
       totalFunctions,
       tree,
-      evolutionData
+      evolutionData,
+      indexStatus
     })
 
   } catch (err) {
@@ -219,6 +224,29 @@ async function analyzeRepo(req, res) {
     return res.status(500).json({ error: 'Failed to analyze repo' })
   } finally {
     activeAnalyses.delete(repoName)
+  }
+}
+
+/**
+ * Proxies the AI service's background-indexing status so the frontend can
+ * poll with short requests (free-tier proxies kill long-running ones).
+ */
+async function getIndexStatus(req, res) {
+  const { repoName } = req.query
+
+  if (!repoName) {
+    return res.status(400).json({ error: 'repoName is required' })
+  }
+
+  try {
+    const response = await axios.get(
+      `${AI_SERVICE_URL}/index-status/${encodeURIComponent(repoName)}`,
+      { timeout: 15000 }
+    )
+    return res.status(200).json(response.data)
+  } catch (err) {
+    console.error('Index status error:', err.message)
+    return res.status(502).json({ error: 'AI service unreachable' })
   }
 }
 
@@ -351,5 +379,6 @@ module.exports = {
   analyzeRepo,
   queryRepo,
   getFileContent,
-  getFunctionEvolution 
+  getFunctionEvolution,
+  getIndexStatus
 }

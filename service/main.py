@@ -1,9 +1,23 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from vector_store import is_already_indexed, index_functions, query_collection, delete_collection, get_function_index
 from llm import ask_llm, model
 
 app = FastAPI()
+
+# Tracks background indexing jobs: repo_name -> "indexing" | "indexed" | "failed".
+# In-memory is fine — a restart wipes the (ephemeral) vector store too, and
+# /index-status falls back to checking the store directly.
+_index_status = {}
+
+
+def _run_indexing(repo_name: str, extracted_functions: list):
+    try:
+        index_functions(repo_name, extracted_functions)
+        _index_status[repo_name] = "indexed"
+    except Exception as e:
+        print(f"Background indexing failed for {repo_name}: {e}")
+        _index_status[repo_name] = "failed"
 
 class IndexRequest(BaseModel):
     repo_name: str
@@ -21,6 +35,7 @@ class EvolutionRequest(BaseModel):
 @app.delete("/index/{repo_name}")
 def force_reindex(repo_name: str):
     delete_collection(repo_name)
+    _index_status.pop(repo_name, None)
     return {"status": "deleted", "message": f"Collection for {repo_name} deleted. Re-analyze to re-index."}
 
 
@@ -30,21 +45,41 @@ def health():
 
 
 @app.post("/index")
-def index_repo(request: IndexRequest):
+def index_repo(request: IndexRequest, background_tasks: BackgroundTasks):
     if is_already_indexed(request.repo_name):
         print(f"{request.repo_name} already indexed, skipping")
+        _index_status[request.repo_name] = "indexed"
         return {
             "status": "already_indexed",
             "message": f"{request.repo_name} was already indexed. Using cached index."
         }
 
-    total = index_functions(request.repo_name, request.extracted_functions)
+    # Don't start a second job for a repo that's already being indexed.
+    if _index_status.get(request.repo_name) == "indexing":
+        return {
+            "status": "indexing",
+            "message": f"{request.repo_name} is already being indexed."
+        }
+
+    # Embed in the background and return immediately. Embedding can take
+    # minutes on small instances, and hosting proxies kill long requests —
+    # callers poll GET /index-status/{repo_name} until it flips to "indexed".
+    _index_status[request.repo_name] = "indexing"
+    background_tasks.add_task(_run_indexing, request.repo_name, request.extracted_functions)
 
     return {
-        "status": "indexed",
-        "chunks_stored": total,
-        "message": f"Successfully indexed {total} functions from {request.repo_name}"
+        "status": "indexing",
+        "message": f"Indexing {request.repo_name} in the background."
     }
+
+
+@app.get("/index-status/{repo_name}")
+def index_status(repo_name: str):
+    status = _index_status.get(repo_name)
+    if status is None:
+        # No in-memory record (e.g. the service restarted) — check the store.
+        status = "indexed" if is_already_indexed(repo_name) else "not_indexed"
+    return {"repo_name": repo_name, "status": status}
 
 
 @app.post("/query")
@@ -52,7 +87,7 @@ def query_repo(request: QueryRequest):
     if not is_already_indexed(request.repo_name):
         raise HTTPException(
             status_code=400,
-            detail="Repo not indexed yet. Call /index first."
+            detail="This repository's index isn't ready (it may still be indexing, or the server restarted). Please re-analyze the repo from the home page."
         )
 
     chunks = query_collection(request.repo_name, request.question, top_k=10)
