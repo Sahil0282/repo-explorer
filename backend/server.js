@@ -22,7 +22,8 @@ app.use(cors({
     if (allowedOrigins.includes(origin)) {
       return callback(null, true)
     }
-    return callback(new Error("Not allowed by CORS"))
+    console.log(`CORS rejected origin: "${origin}" — allowedOrigins: ${JSON.stringify(allowedOrigins)}`)
+    return callback(null, false)
   },
   methods: ["GET", "POST", "DELETE"],
   credentials: true
