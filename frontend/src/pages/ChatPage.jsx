@@ -11,6 +11,7 @@ import Brand from "../components/ui/Brand";
 import Badge from "../components/ui/Badge";
 import LoadingDots from "../components/ui/LoadingDots";
 import { loadSession, saveSession } from "../lib/chatStorage";
+import { API_URL } from "../lib/api";
 
 export default function ChatPage() {
   const location = useLocation();
@@ -107,7 +108,7 @@ export default function ChatPage() {
 
     try {
       const response = await axios.post(
-        "http://localhost:8000/api/repo/query",
+        `${API_URL}/api/repo/query`,
         { repoName, question },
         { timeout: 60000 }
       );

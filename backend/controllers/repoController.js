@@ -9,6 +9,10 @@ const { getCodeEvolution } = require('../utils/gitEvolution')
 
 const CLONE_BASE = path.resolve('./temp_repos')
 
+// AI service base URL — set AI_SERVICE_URL in production (e.g. the Render
+// URL of the FastAPI service); defaults to the local dev address.
+const AI_SERVICE_URL = process.env.AI_SERVICE_URL || 'http://127.0.0.1:8001'
+
 // Cap how many cloned repos linger on disk. The app is single-session (one
 // active repo at a time), so old clones are stale once a new repo is analyzed.
 const MAX_REPOS = 5
@@ -187,7 +191,7 @@ async function analyzeRepo(req, res) {
 
     try {
       const indexResponse = await axios.post(
-        'http://127.0.0.1:8001/index',
+        `${AI_SERVICE_URL}/index`,
         {
           repo_name: repoName,
           extracted_functions: extractedFunctions
@@ -227,7 +231,7 @@ async function queryRepo(req, res) {
 
   try {
     const response = await axios.post(
-      'http://127.0.0.1:8001/query',
+      `${AI_SERVICE_URL}/query`,
       {
         repo_name: repoName,
         question
@@ -320,7 +324,7 @@ async function getFunctionEvolution(req, res) {
     let summary = ''
 
     try {
-      const aiResponse = await axios.post('http://127.0.0.1:8001/evolution-summary', {
+      const aiResponse = await axios.post(`${AI_SERVICE_URL}/evolution-summary`, {
         history: functionData.history
       })
 

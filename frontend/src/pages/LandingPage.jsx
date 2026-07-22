@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import axios from 'axios'
 import { ArrowRight, Loader2, Zap, Sparkles, Map } from 'lucide-react'
 import Brand from '../components/ui/Brand'
+import { API_URL } from '../lib/api'
 
 const GithubIcon = ({ className }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
@@ -43,7 +44,7 @@ export default function LandingPage() {
     setError('')
 
     try {
-      const response = await axios.post('http://localhost:8000/api/repo/analyze', {
+      const response = await axios.post(`${API_URL}/api/repo/analyze`, {
         repoUrl
       }, { timeout: 300000 })
 

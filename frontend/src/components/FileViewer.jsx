@@ -3,6 +3,7 @@ import axios from 'axios'
 import { History, FileCode2 } from 'lucide-react'
 import CodeBlock from './CodeBlock'
 import EmptyState from './ui/EmptyState'
+import { API_URL } from '../lib/api'
 
 export default function FileViewer({ repoName, filePath, highlight, selectedFunction, onViewEvolution }) {
   const [content, setContent] = useState('')
@@ -15,7 +16,7 @@ export default function FileViewer({ repoName, filePath, highlight, selectedFunc
     setLoading(true)
     setError('')
 
-    axios.get('http://localhost:8000/api/repo/file', {
+    axios.get(`${API_URL}/api/repo/file`, {
       params: { repoName, filePath }
     })
       .then(res => setContent(res.data.content))

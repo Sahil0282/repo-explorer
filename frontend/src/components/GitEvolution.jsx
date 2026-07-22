@@ -3,6 +3,7 @@ import axios from "axios";
 import { History, X, Sparkles, ScrollText } from "lucide-react";
 import LoadingDots from "./ui/LoadingDots";
 import EmptyState from "./ui/EmptyState";
+import { API_URL } from "../lib/api";
 
 function shortHash(hash) {
   return hash ? hash.slice(0, 7) : "";
@@ -53,7 +54,7 @@ export default function GitEvolution({ repoName, target, onClose }) {
     setData(null);
 
     axios
-      .get("http://localhost:8000/api/repo/evolution", {
+      .get(`${API_URL}/api/repo/evolution`, {
         params: {
           repoName,
           filePath: target.file,
