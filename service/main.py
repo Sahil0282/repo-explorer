@@ -1,3 +1,7 @@
+import base64
+import gzip
+import json
+
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from vector_store import is_already_indexed, index_functions, query_collection, delete_collection, get_function_index
@@ -21,7 +25,10 @@ def _run_indexing(repo_name: str, extracted_functions: list):
 
 class IndexRequest(BaseModel):
     repo_name: str
-    extracted_functions: list
+    # Plain list (local dev) or gzip+base64 (production — raw source code in
+    # the body trips hosting-provider WAFs, so the backend sends it opaque).
+    extracted_functions: list = []
+    extracted_functions_b64: str | None = None
 
 class QueryRequest(BaseModel):
     repo_name: str
@@ -54,6 +61,16 @@ def index_repo(request: IndexRequest, background_tasks: BackgroundTasks):
             "message": f"{request.repo_name} was already indexed. Using cached index."
         }
 
+    extracted = request.extracted_functions
+    if request.extracted_functions_b64:
+        try:
+            extracted = json.loads(gzip.decompress(base64.b64decode(request.extracted_functions_b64)))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid extracted_functions_b64 payload.")
+
+    if not extracted:
+        raise HTTPException(status_code=400, detail="No functions to index.")
+
     # Don't start a second job for a repo that's already being indexed.
     if _index_status.get(request.repo_name) == "indexing":
         return {
@@ -65,7 +82,7 @@ def index_repo(request: IndexRequest, background_tasks: BackgroundTasks):
     # minutes on small instances, and hosting proxies kill long requests —
     # callers poll GET /index-status/{repo_name} until it flips to "indexed".
     _index_status[request.repo_name] = "indexing"
-    background_tasks.add_task(_run_indexing, request.repo_name, request.extracted_functions)
+    background_tasks.add_task(_run_indexing, request.repo_name, extracted)
 
     return {
         "status": "indexing",
