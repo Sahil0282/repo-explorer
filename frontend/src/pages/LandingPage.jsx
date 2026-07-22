@@ -42,7 +42,9 @@ export default function LandingPage() {
   // the chat never opens against a half-indexed repo. Short poll requests
   // survive free-tier proxy timeouts where one long request would be killed.
   async function waitForIndexing(repoName) {
-    const deadline = Date.now() + 240000 // 4 minutes
+    // Generous ceiling: big repos embed in throttled batches (free-tier
+    // quota is per-minute), so indexing can legitimately take a while.
+    const deadline = Date.now() + 600000 // 10 minutes
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 4000))
       try {

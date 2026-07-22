@@ -85,7 +85,7 @@ flowchart LR
 
 1. **Frontend** — paste a URL, chat with the codebase, explore the Focus Map, File Tree, and File Viewer.
 2. **Backend** — clones the repo, extracts every function via Babel AST parsing, mines Git history, and proxies requests to the AI service.
-3. **AI Service** — embeds functions with `all-MiniLM-L6-v2`, indexes them in ChromaDB, retrieves with hybrid BM25 + vector search, and calls Gemini 2.5 Flash to generate grounded, cited answers.
+3. **AI Service** — embeds functions with Gemini's `gemini-embedding-001` API, indexes them in ChromaDB, retrieves with hybrid BM25 + vector search, and calls Gemini 2.5 Flash to generate grounded, cited answers.
 
 ## Tech Stack
 
@@ -93,7 +93,7 @@ flowchart LR
 |---|---|
 | **Frontend** | React 19, Vite, Tailwind CSS, React Router, [React Flow](https://reactflow.dev/) + Dagre (Focus Map), Shiki (syntax highlighting), react-markdown |
 | **Backend** | Node.js, Express 5, `simple-git`, `@babel/parser` + `@babel/traverse` (AST extraction), `express-rate-limit` |
-| **AI Service** | Python, FastAPI, ChromaDB (persistent vector store), `sentence-transformers` (`all-MiniLM-L6-v2`), `rank_bm25`, Google Generative AI SDK |
+| **AI Service** | Python, FastAPI, ChromaDB (persistent vector store), Gemini embedding API (`gemini-embedding-001`), `rank_bm25`, Google Generative AI SDK |
 | **LLM** | Gemini 2.5 Flash |
 | **Retrieval** | Hybrid BM25 + vector search, merged via Reciprocal Rank Fusion |
 
