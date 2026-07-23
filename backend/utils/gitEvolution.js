@@ -26,9 +26,22 @@ async function getCodeEvolution(repoPath, extractedFunctions) {
 
     let diff
     try {
-      diff = await git.show([commitHash, '--unified=0'])
+      // Restrict diffs to the file types we actually map functions for.
+      // Without the pathspec, one commit touching notebooks/datasets can
+      // produce a multi-hundred-MB diff string and OOM small hosts.
+      diff = await git.show([
+        commitHash, '--unified=0', '--',
+        '*.js', '*.jsx', '*.ts', '*.tsx'
+      ])
     } catch (err) {
       console.error(`Git show error for ${commitHash}:`, err.message)
+      continue
+    }
+
+    // Defensive cap: skip pathological commits (vendored bundles, minified
+    // blobs) rather than parse a giant string on a small instance.
+    if (diff.length > 5 * 1024 * 1024) {
+      console.log(`Skipping oversized diff for ${commitHash} (${diff.length} bytes)`)
       continue
     }
 

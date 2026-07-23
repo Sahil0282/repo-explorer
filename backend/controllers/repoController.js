@@ -284,7 +284,7 @@ async function runAnalysis(job, validation) {
       return
     }
 
-    const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
+    const extractedFunctions = await extractFunctionsFromTree(tree, clonePath)
 
     const totalFunctions = extractedFunctions.reduce(
       (sum, f) => sum + f.functionCount,
@@ -499,7 +499,7 @@ async function getFunctionEvolution(req, res) {
     }
 
     const tree = buildFileTree(clonePath)
-    const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
+    const extractedFunctions = await extractFunctionsFromTree(tree, clonePath)
 
     const evolutionData = await getCodeEvolution(clonePath, extractedFunctions)
 

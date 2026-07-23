@@ -107,11 +107,14 @@ function extractFunctionsFromFile(filePath) {
 }
 
 // this is the main function called from outside
-// it takes the full file tree and extracts functions from every file
-function extractFunctionsFromTree(tree, basePath) {
+// it takes the full file tree and extracts functions from every file.
+// Async: yields the event loop between files so health checks, status
+// polls, and SSE heartbeats stay responsive while babel chews through a
+// big repo on a slow CPU — otherwise the process looks dead to the host.
+async function extractFunctionsFromTree(tree, basePath) {
   const results = []
 
-  function walk(nodes) {
+  async function walk(nodes) {
     for (const node of nodes) {
       if (node.type === 'file') {
         const fullPath = require('path').join(basePath, node.path)
@@ -125,13 +128,16 @@ function extractFunctionsFromTree(tree, basePath) {
             functions
           })
         }
+
+        // let pending I/O and timers run before parsing the next file
+        await new Promise(resolve => setImmediate(resolve))
       } else if (node.type === 'folder' && node.children) {
-        walk(node.children)
+        await walk(node.children)
       }
     }
   }
 
-  walk(tree)
+  await walk(tree)
   return results
 }
 
