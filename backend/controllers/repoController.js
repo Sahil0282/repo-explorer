@@ -7,6 +7,7 @@ const zlib = require('zlib')
 const { buildFileTree, countFiles } = require('../utils/fileTree')
 const { extractFunctionsFromTree } = require('../utils/extractFunctions')
 const { getCodeEvolution } = require('../utils/gitEvolution')
+const { jobs, createJob, emit, finish, publicView, findRunningJobForRepo } = require('../jobs')
 
 const CLONE_BASE = path.resolve('./temp_repos')
 
@@ -107,9 +108,81 @@ function validateGitHubUrl(url) {
 
   return {
     valid: true,
+    owner,
+    repo,
     repoName: `${owner}_${repo}`,
     cloneUrl: `https://github.com/${owner}/${repo}.git`
   }
+}
+
+// Hard limits for what the free-tier deployment can realistically process.
+const MAX_FILES = 300
+const MAX_REPO_SIZE_KB = 150 * 1024 // 150MB of git data — clone would be too slow
+
+/**
+ * Fast pre-checks via the GitHub API so users learn a repo can't be processed
+ * in under a second, instead of waiting minutes for a clone to fail.
+ * Best-effort: any GitHub API failure (rate limit, network) skips the check
+ * and lets the authoritative post-clone checks decide.
+ *
+ * @returns {{ ok: boolean, error?: string }}
+ */
+async function preflightRepoCheck(owner, repo) {
+  let info
+  try {
+    const resp = await axios.get(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+      { timeout: 8000, headers: { Accept: 'application/vnd.github+json' } }
+    )
+    info = resp.data
+  } catch (err) {
+    if (err.response?.status === 404) {
+      return { ok: false, error: 'Repository not found. Check the URL — private repos are not supported.' }
+    }
+    return { ok: true } // rate-limited or unreachable — skip pre-checks
+  }
+
+  if (info.size > MAX_REPO_SIZE_KB) {
+    const mb = Math.round(info.size / 1024)
+    return { ok: false, error: `This repository is too large to analyze here (~${mb}MB of git data). Try a smaller repo.` }
+  }
+
+  // Is this even a JavaScript/TypeScript project?
+  try {
+    const langResp = await axios.get(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/languages`,
+      { timeout: 8000, headers: { Accept: 'application/vnd.github+json' } }
+    )
+    const langs = langResp.data
+    const total = Object.values(langs).reduce((a, b) => a + b, 0)
+    const jsBytes = (langs.JavaScript || 0) + (langs.TypeScript || 0)
+    if (total > 0 && jsBytes === 0) {
+      const top = Object.keys(langs)[0] || 'non-JavaScript code'
+      return { ok: false, error: `This repo is written in ${top}. RepoExplorer currently supports JavaScript/TypeScript projects (Node, React, Next.js, MERN...).` }
+    }
+  } catch { /* best-effort */ }
+
+  // Instant file-count screen using the git tree (no clone needed).
+  // Only reject CLEAR violations; borderline cases get the authoritative
+  // post-clone count.
+  try {
+    const branch = info.default_branch || 'main'
+    const treeResp = await axios.get(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(branch)}?recursive=1`,
+      { timeout: 10000, headers: { Accept: 'application/vnd.github+json' } }
+    )
+    if (treeResp.data.truncated) {
+      return { ok: false, error: `This repository has too many files for the current ${MAX_FILES}-file limit.` }
+    }
+    const blobs = (treeResp.data.tree || []).filter(
+      n => n.type === 'blob' && !n.path.includes('node_modules/')
+    )
+    if (blobs.length > MAX_FILES * 2) {
+      return { ok: false, error: `Repo too large (${blobs.length} files). The current limit is ${MAX_FILES} files.` }
+    }
+  } catch { /* best-effort */ }
+
+  return { ok: true }
 }
 
 /**
@@ -131,7 +204,13 @@ function safePath(basePath, userPath) {
   return { safe: true, resolvedPath: resolved }
 }
 
-async function analyzeRepo(req, res) {
+/**
+ * POST /analyze — synchronous part only. Validates, runs fast GitHub API
+ * pre-checks (so bad repos fail in <1s), then spawns the analysis as a
+ * background job and returns a jobId immediately. Long work can no longer
+ * be killed by proxy timeouts because no request outlives a second.
+ */
+async function startAnalysis(req, res) {
   const { repoUrl } = req.body
 
   const validation = validateGitHubUrl(repoUrl)
@@ -139,36 +218,72 @@ async function analyzeRepo(req, res) {
     return res.status(400).json({ error: validation.error })
   }
 
-  const repoName = validation.repoName
+  // Join an in-flight job for the same repo instead of double-cloning.
+  const existing = findRunningJobForRepo(validation.repoName)
+  if (existing) {
+    return res.status(202).json({ jobId: existing.id })
+  }
 
+  const preflight = await preflightRepoCheck(validation.owner, validation.repo)
+  if (!preflight.ok) {
+    return res.status(400).json({ error: preflight.error })
+  }
+
+  const job = createJob(validation.repoName)
+  runAnalysis(job, validation).catch(err => {
+    console.error('Analysis job crashed:', err)
+    finish(job, { status: 'failed', error: 'Failed to analyze repo' })
+  })
+
+  return res.status(202).json({ jobId: job.id })
+}
+
+/**
+ * The background analysis pipeline. Emits real step progress to SSE
+ * listeners; ends with status done (result payload) or failed (error).
+ */
+async function runAnalysis(job, validation) {
+  const repoName = validation.repoName
   const clonePath = path.resolve(CLONE_BASE, repoName)
 
   // Guard this repo against cleanup while its analysis is in flight.
   activeAnalyses.add(repoName)
 
   try {
+    emit(job, { step: 'clone', stepIndex: 1, message: 'Cloning repository...' })
+
     if (!fs.existsSync(clonePath)) {
       fs.mkdirSync(CLONE_BASE, { recursive: true })
       console.log(`Cloning ${validation.cloneUrl}...`)
-      await simpleGit().clone(validation.cloneUrl, clonePath)
+      const git = simpleGit({
+        progress: ({ progress }) => emit(job, { progress })
+      })
+      // Shallow clone: evolution mining only reads the last 20 commits, so
+      // --depth 25 keeps big repos fast without losing any needed history.
+      await git.clone(validation.cloneUrl, clonePath, ['--depth', '25'])
       console.log('Clone complete')
+      emit(job, { progress: null })
     } else {
       console.log('Repo already cloned, using cache')
+      emit(job, { message: 'Using cached clone...' })
     }
 
     // Now that the target clone is present, prune stale repos (keeps this one).
     cleanupOldRepos(repoName)
 
+    emit(job, { step: 'parse', stepIndex: 2, message: 'Parsing files and extracting functions...' })
+
     const tree = buildFileTree(clonePath)
     const fileCount = countFiles(tree)
 
-    if (fileCount > 300) {
-      return res.status(400).json({
-        error: `Repo too large (${fileCount} files). MVP supports up to 300 files.`
+    if (fileCount > MAX_FILES) {
+      finish(job, {
+        status: 'failed',
+        error: `Repo too large (${fileCount} files). The current limit is ${MAX_FILES} files.`
       })
+      return
     }
 
-    console.log('Extracting functions...')
     const extractedFunctions = extractFunctionsFromTree(tree, clonePath)
 
     const totalFunctions = extractedFunctions.reduce(
@@ -178,7 +293,7 @@ async function analyzeRepo(req, res) {
 
     console.log(`Extracted ${totalFunctions} functions`)
 
-    console.log('Analyzing code evolution...')
+    emit(job, { step: 'evolution', stepIndex: 3, message: 'Analyzing code evolution...' })
     let evolutionData = {}
 
     try {
@@ -188,13 +303,8 @@ async function analyzeRepo(req, res) {
       console.error('Evolution error:', evoErr.message)
     }
 
-    console.log('Sending to AI service for indexing...')
+    emit(job, { step: 'index', stepIndex: 4, message: 'Generating embeddings and indexing (longest step)...' })
 
-    // /index returns immediately ("indexing" | "already_indexed") while
-    // embedding runs in the background on the AI service — the frontend
-    // polls GET /index-status until it's ready. A failure here is surfaced
-    // as indexStatus: "failed" instead of silently dropping the user into
-    // a chat whose repo was never indexed.
     // The payload is raw source code, which web application firewalls in
     // front of hosting providers block as injection attacks (e.g. a literal
     // "etc/passwd" in a security comment reads as a path-traversal attempt).
@@ -203,37 +313,82 @@ async function analyzeRepo(req, res) {
       .gzipSync(JSON.stringify(extractedFunctions))
       .toString('base64')
 
-    let indexStatus = 'failed'
-    try {
-      const indexResponse = await axios.post(
-        `${AI_SERVICE_URL}/index`,
-        {
-          repo_name: repoName,
-          extracted_functions_b64: encodedFunctions
-        },
-        { timeout: 60000 }
-      )
-      indexStatus = indexResponse.data.status
-      console.log('AI service response:', indexStatus)
-    } catch (aiErr) {
-      console.error('AI service error:', aiErr.message)
+    const indexResponse = await axios.post(
+      `${AI_SERVICE_URL}/index`,
+      {
+        repo_name: repoName,
+        extracted_functions_b64: encodedFunctions
+      },
+      { timeout: 60000 }
+    )
+    const indexStatus = indexResponse.data.status
+    console.log('AI service response:', indexStatus)
+
+    // /index returns immediately; wait for the background embedding to
+    // actually finish so "done" means the chat is genuinely ready.
+    if (indexStatus !== 'already_indexed') {
+      const deadline = Date.now() + 12 * 60 * 1000
+      let indexed = false
+      while (!indexed && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 4000))
+        try {
+          const s = await axios.get(
+            `${AI_SERVICE_URL}/index-status/${encodeURIComponent(repoName)}`,
+            { timeout: 15000 }
+          )
+          if (s.data.status === 'indexed') indexed = true
+          if (s.data.status === 'failed') {
+            finish(job, { status: 'failed', error: 'Embedding failed on the AI service. Please try again.' })
+            return
+          }
+        } catch { /* transient poll failure — keep trying */ }
+      }
+      if (!indexed) {
+        finish(job, { status: 'failed', error: 'Indexing timed out. Please try again.' })
+        return
+      }
     }
 
-    return res.status(200).json({
-      repoName,
-      fileCount,
-      totalFunctions,
-      tree,
-      evolutionData,
-      indexStatus
+    finish(job, {
+      status: 'done',
+      stepIndex: 5,
+      message: 'Analysis complete',
+      result: { repoName, fileCount, totalFunctions, tree, evolutionData }
     })
 
   } catch (err) {
-    console.error(err)
-    return res.status(500).json({ error: 'Failed to analyze repo' })
+    console.error('Analysis error:', err.message)
+    const friendly = err.message?.includes('ECONNREFUSED') || err.response
+      ? 'The AI service is unavailable. Please try again in a minute.'
+      : 'Failed to analyze repo'
+    finish(job, { status: 'failed', error: friendly })
   } finally {
     activeAnalyses.delete(repoName)
   }
+}
+
+/**
+ * GET /analyze/status/:jobId — SSE stream of job snapshots.
+ * `?poll=1` returns a single JSON snapshot instead (fallback for proxies
+ * that mishandle SSE).
+ */
+function analysisStatus(req, res) {
+  const job = jobs.get(req.params.jobId)
+  if (!job) return res.status(404).json({ error: 'Job not found' })
+
+  if (req.query.poll === '1') {
+    return res.status(200).json(publicView(job))
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream')
+  res.setHeader('Cache-Control', 'no-cache')
+  res.setHeader('Connection', 'keep-alive')
+  res.flushHeaders()
+  res.write(`data: ${JSON.stringify(publicView(job))}\n\n`)   // immediate snapshot
+  if (job.status !== 'running') return res.end()               // late subscriber
+  job.listeners.add(res)
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), 15000)
+  req.on('close', () => { clearInterval(heartbeat); job.listeners.delete(res) })
 }
 
 /**
@@ -385,7 +540,8 @@ async function getFunctionEvolution(req, res) {
 }
 
 module.exports = {
-  analyzeRepo,
+  startAnalysis,
+  analysisStatus,
   queryRepo,
   getFileContent,
   getFunctionEvolution,

@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import axios from 'axios'
 import { ArrowRight, Loader2, Zap, Sparkles, Map } from 'lucide-react'
 import Brand from '../components/ui/Brand'
-import { API_URL } from '../lib/api'
+import { startAnalysis, subscribeAnalysis } from '../lib/api'
 
 const GithubIcon = ({ className }) => (
   <svg className={className} fill="currentColor" viewBox="0 0 24 24">
@@ -11,88 +10,50 @@ const GithubIcon = ({ className }) => (
   </svg>
 )
 
-const LOADING_MESSAGES = [
-  'Cloning repository from GitHub...',
-  'Parsing files and extracting functions...',
-  'Generating embeddings with MiniLM...',
-  'Indexing into vector database...',
-  'Finalizing analysis...'
-]
-
 export default function LandingPage() {
   const [repoUrl, setRepoUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [loadingMsgIdx, setLoadingMsgIdx] = useState(0)
+  const [jobStatus, setJobStatus] = useState(null)
+  const esRef = useRef(null)
   const navigate = useNavigate()
 
-  useEffect(() => {
-    let interval;
-    if (loading) {
-      interval = setInterval(() => {
-        setLoadingMsgIdx((prev) => (prev + 1) % LOADING_MESSAGES.length)
-      }, 3000)
-    } else {
-      setLoadingMsgIdx(0)
-    }
-    return () => clearInterval(interval)
-  }, [loading])
-
-  // Indexing runs in the background on the server; poll until it's done so
-  // the chat never opens against a half-indexed repo. Short poll requests
-  // survive free-tier proxy timeouts where one long request would be killed.
-  async function waitForIndexing(repoName) {
-    // Generous ceiling: big repos embed in throttled batches (free-tier
-    // quota is per-minute), so indexing can legitimately take a while.
-    const deadline = Date.now() + 600000 // 10 minutes
-    while (Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 4000))
-      try {
-        const res = await axios.get(`${API_URL}/api/repo/index-status`, {
-          params: { repoName },
-          timeout: 15000
-        })
-        if (res.data.status === 'indexed') return true
-        if (res.data.status === 'failed') return false
-      } catch {
-        // transient poll failure — keep trying until the deadline
-      }
-    }
-    return false
-  }
+  // Abandon the progress subscription on unmount; the job itself keeps
+  // running server-side (a revisit re-joins via the same repo URL).
+  useEffect(() => () => esRef.current?.close(), [])
 
   async function handleAnalyze() {
     if (!repoUrl.trim()) return
     setLoading(true)
     setError('')
+    setJobStatus(null)
 
     try {
-      const response = await axios.post(`${API_URL}/api/repo/analyze`, {
-        repoUrl
-      }, { timeout: 300000 })
+      // Fast: validates + GitHub pre-checks, then returns a jobId while the
+      // real work (clone, parse, embed) runs as a server-side background job.
+      const { data } = await startAnalysis(repoUrl)
 
-      const { repoName, fileCount, totalFunctions, tree, indexStatus } = response.data
-
-      if (indexStatus === 'failed') {
-        setError('Could not reach the AI indexing service. Please try again in a minute.')
-        return
-      }
-
-      // Wait for background indexing to finish before entering chat.
-      if (indexStatus !== 'already_indexed') {
-        const ready = await waitForIndexing(repoName)
-        if (!ready) {
-          setError('Code indexing is taking longer than expected. Please try again.')
-          return
-        }
-      }
-
-      navigate('/chat', {
-        state: { repoName, fileCount, totalFunctions, tree }
+      esRef.current = subscribeAnalysis(data.jobId, {
+        onUpdate: setJobStatus,
+        onDone: (result) => navigate('/chat', {
+          state: {
+            repoName: result.repoName,
+            fileCount: result.fileCount,
+            totalFunctions: result.totalFunctions,
+            tree: result.tree,
+          }
+        }),
+        onFail: (msg) => {
+          setError(msg || 'Failed to analyze repo.')
+          setLoading(false)
+        },
+        onLost: () => {
+          setError('Lost connection to the analysis. Please try again.')
+          setLoading(false)
+        },
       })
     } catch (err) {
       setError(err.response?.data?.error || 'Failed to analyze repo. Check the URL and try again.')
-    } finally {
       setLoading(false)
     }
   }
@@ -176,11 +137,20 @@ export default function LandingPage() {
             </button>
           </div>
 
-          {/* Dynamic Loading State */}
+          {/* Real analysis progress, streamed from the server job */}
           <div className="h-10 mt-3 flex items-center justify-center overflow-hidden">
             <div className={`transition-all duration-500 flex items-center gap-2 ${loading ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2 pointer-events-none'}`}>
                <Loader2 className="w-4 h-4 animate-spin text-brand-400" />
-               <span className="text-sm font-medium text-brand-400">{LOADING_MESSAGES[loadingMsgIdx]}</span>
+               <span className="text-sm font-medium text-brand-400">
+                 {jobStatus
+                   ? `${jobStatus.message}${jobStatus.progress != null ? ` — ${jobStatus.progress}%` : ''}`
+                   : 'Starting analysis...'}
+               </span>
+               {jobStatus && jobStatus.stepIndex > 0 && (
+                 <span className="text-xs text-content-muted">
+                   Step {jobStatus.stepIndex}/{jobStatus.totalSteps}
+                 </span>
+               )}
             </div>
           </div>
 
