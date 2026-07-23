@@ -249,6 +249,10 @@ async function runAnalysis(job, validation) {
   // Guard this repo against cleanup while its analysis is in flight.
   activeAnalyses.add(repoName)
 
+  // Pre-warm the AI service now (free tiers spin down when idle; waking
+  // takes ~a minute). By the time clone/parse/evolution finish, it's up.
+  axios.get(`${AI_SERVICE_URL}/health`, { timeout: 120000 }).catch(() => {})
+
   try {
     emit(job, { step: 'clone', stepIndex: 1, message: 'Cloning repository...' })
 
@@ -313,14 +317,27 @@ async function runAnalysis(job, validation) {
       .gzipSync(JSON.stringify(extractedFunctions))
       .toString('base64')
 
-    const indexResponse = await axios.post(
-      `${AI_SERVICE_URL}/index`,
-      {
-        repo_name: repoName,
-        extracted_functions_b64: encodedFunctions
-      },
-      { timeout: 60000 }
-    )
+    // Retry across cold starts: a sleeping free-tier AI service can take
+    // over a minute to wake, and the job has all the time in the world.
+    let indexResponse
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        indexResponse = await axios.post(
+          `${AI_SERVICE_URL}/index`,
+          {
+            repo_name: repoName,
+            extracted_functions_b64: encodedFunctions
+          },
+          { timeout: 60000 }
+        )
+        break
+      } catch (err) {
+        console.error(`Index call attempt ${attempt} failed:`, err.message)
+        if (attempt === 4) throw err
+        emit(job, { message: 'Waking the AI service (free tier sleeps when idle)...' })
+        await new Promise(r => setTimeout(r, 20000))
+      }
+    }
     const indexStatus = indexResponse.data.status
     console.log('AI service response:', indexStatus)
 
