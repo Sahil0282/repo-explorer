@@ -317,10 +317,36 @@ async function runAnalysis(job, validation) {
       .gzipSync(JSON.stringify(extractedFunctions))
       .toString('base64')
 
-    // Retry across cold starts: a sleeping free-tier AI service can take
-    // over a minute to wake, and the job has all the time in the world.
+    // Cold starts take 60-90s and the host's edge fast-fails requests with
+    // 502 while the instance boots — blind retries burn out before the wake
+    // completes. Instead, wait until /health confirms the service is up
+    // (the job has all the time in the world), then send the real payload.
+    let aiUp = false
+    try {
+      await axios.get(`${AI_SERVICE_URL}/health`, { timeout: 10000 })
+      aiUp = true
+    } catch { /* asleep — wait for the wake below */ }
+
+    if (!aiUp) {
+      emit(job, { message: 'Waking the AI service (free tier sleeps when idle)...' })
+      const healthDeadline = Date.now() + 4 * 60 * 1000
+      while (!aiUp && Date.now() < healthDeadline) {
+        await new Promise(r => setTimeout(r, 10000))
+        try {
+          await axios.get(`${AI_SERVICE_URL}/health`, { timeout: 10000 })
+          aiUp = true
+        } catch { /* still booting — keep waiting */ }
+      }
+      if (!aiUp) {
+        finish(job, { status: 'failed', error: 'The AI service did not wake up in time. Please try again in a minute.' })
+        return
+      }
+      emit(job, { message: 'Generating embeddings and indexing (longest step)...' })
+    }
+
+    // Service confirmed up — send the payload, with one retry as safety.
     let indexResponse
-    for (let attempt = 1; attempt <= 4; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         indexResponse = await axios.post(
           `${AI_SERVICE_URL}/index`,
@@ -333,9 +359,8 @@ async function runAnalysis(job, validation) {
         break
       } catch (err) {
         console.error(`Index call attempt ${attempt} failed:`, err.message)
-        if (attempt === 4) throw err
-        emit(job, { message: 'Waking the AI service (free tier sleeps when idle)...' })
-        await new Promise(r => setTimeout(r, 20000))
+        if (attempt === 2) throw err
+        await new Promise(r => setTimeout(r, 15000))
       }
     }
     const indexStatus = indexResponse.data.status
